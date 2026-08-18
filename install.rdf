@@ -4,7 +4,7 @@
   <Description about="urn:mozilla:install-manifest">
     <em:id>typescript_language@www.neolite.org</em:id>
     <em:name>TypeScript for Komodo 9</em:name>
-    <em:version>0.3.0</em:version>
+    <em:version>0.3.1</em:version>
     <em:description>TypeScript and React TypeScript (TSX) support for Komodo IDE/Edit 9.3.x, including TypeScript LanguageService-backed CodeIntel.</em:description>
     <em:creator>Komodo TypeScript Backport</em:creator>
     <em:type>2</em:type>
