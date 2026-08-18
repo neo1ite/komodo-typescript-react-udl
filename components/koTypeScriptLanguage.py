@@ -1,62 +1,48 @@
 # -*- coding: utf-8 -*-
-"""Minimal TypeScript language component for Komodo 9.3.x / Python 2.7."""
+"""Standalone TypeScript language service for Komodo 9.3.x."""
 
 import logging
 from xpcom import components
-from koJavaScriptLanguage import (
-    koJavaScriptLanguage,
-    KoJavaScriptLexerLanguageService,
+import styles
+from koLanguageServiceBase import (
+    KoLanguageBase,
+    KoLanguageBaseDedentMixin,
+    KoLexerLanguageService,
+    FastCharData,
 )
 
 log = logging.getLogger("koTypeScriptLanguage")
+sci_constants = components.interfaces.ISciMoz
 
-_TYPESCRIPT_KEYWORDS = sorted(set("""
-abstract accessor any as asserts async await bigint boolean break case catch
-class const constructor continue debugger declare default delete do else enum
-export extends false finally for from function get global if implements import
-in infer instanceof interface intrinsic is keyof let module namespace never new
-null number object of out override package private protected public readonly
-require return satisfies set static string super switch symbol this throw true
-try type typeof undefined unique unknown using var void while with yield
-""".split()))
-
-
-def _install_style_map():
-    """Give TypeScript the same Scintilla style mapping as JavaScript."""
-    try:
-        from styles import StateMap
-    except Exception:
-        try:
-            import koScintillaSchemeService
-            StateMap = koScintillaSchemeService.StateMap
-        except Exception:
-            log.exception("Unable to install TypeScript StateMap")
-            return
-
-    if "TypeScript" not in StateMap and "JavaScript" in StateMap:
-        StateMap["TypeScript"] = StateMap["JavaScript"].copy()
+_TYPESCRIPT_KEYWORDS = set("""
+abstract any as async await boolean break case catch class const constructor
+continue debugger declare default delete do else enum export extends false
+finally for from function get if implements import in instanceof interface
+is keyof let module namespace never new null number object of package private
+protected public readonly require return set static string super switch symbol
+this throw true try type typeof undefined unique unknown var void while with
+yield
+""".split())
 
 
-_install_style_map()
-
-
-class KoTypeScriptLexerLanguageService(KoJavaScriptLexerLanguageService):
+class KoTypeScriptLexerLanguageService(KoLexerLanguageService):
     def __init__(self):
-        KoJavaScriptLexerLanguageService.__init__(self)
+        KoLexerLanguageService.__init__(self)
+        self.setLexer(sci_constants.SCLEX_CPP)
+        self.supportsFolding = 1
+        self.setProperty("lexer.cpp.allow.dollars", "1")
+        self.setProperty("lexer.cpp.backquoted.strings", "1")
+        self.setProperty("fold.cpp.syntax.based", "1")
         self.setKeywords(0, _TYPESCRIPT_KEYWORDS)
 
 
-class koTypeScriptLanguage(koJavaScriptLanguage):
+class koTypeScriptLanguage(KoLanguageBase, KoLanguageBaseDedentMixin):
     name = "TypeScript"
     _reg_desc_ = "%s Language" % name
     _reg_contractid_ = "@activestate.com/koLanguage?language=%s;1" % name
     _reg_clsid_ = "{2d204ae1-e7c0-4035-85d8-90a78a2cb647}"
     _reg_categories_ = [("komodo-language", name)]
-
-    # Explicitly expose the base language interfaces.  This mirrors the
-    # approach used by Komodo's external Go language extension and avoids
-    # relying on PyXPCOM discovering an inherited registration attribute.
-    _com_interfaces_ = koJavaScriptLanguage._com_interfaces_[:]
+    _com_interfaces_ = KoLanguageBase._com_interfaces_[:]
 
     primary = 1
     internal = 0
@@ -71,7 +57,18 @@ class koTypeScriptLanguage(koJavaScriptLanguage):
         "markup": "*",
     }
     supportsSmartIndent = "brace"
+    _dedenting_statements = [u"throw", u"return", u"break", u"continue"]
     namedBlockDescription = "TypeScript functions and classes"
+    namedBlockRE = (
+        r"^[ |\\t]*?(?:([\\w|\\.|_]*?)\\s*=\\s*function|"
+        r"function\\s*([\\w|_]*?)|class\\s+([\\w|_]+)|"
+        r"interface\\s+([\\w|_]+)).*?$"
+    )
+
+    styleStdin = sci_constants.SCE_C_STDIN
+    styleStdout = sci_constants.SCE_C_STDOUT
+    styleStderr = sci_constants.SCE_C_STDERR
+    _stateMap = styles.StateMap["JavaScript"].copy()
 
     sample = """interface Person {
     name: string;
@@ -80,12 +77,29 @@ class koTypeScriptLanguage(koJavaScriptLanguage):
 
 class Greeter {
     constructor(private person: Person) {}
-
-    greet(): string {
-        return `Hello, ${this.person.name}`;
-    }
+    greet(): string { return `Hello, ${this.person.name}`; }
 }
 """
+
+    def __init__(self):
+        KoLanguageBase.__init__(self)
+        KoLanguageBaseDedentMixin.__init__(self)
+        self._style_info.update(
+            _block_comment_styles=[
+                sci_constants.SCE_C_COMMENT,
+                sci_constants.SCE_C_COMMENTDOC,
+                sci_constants.SCE_C_COMMENTDOCKEYWORD,
+                sci_constants.SCE_C_COMMENTDOCKEYWORDERROR,
+            ],
+            _variable_styles=[sci_constants.SCE_C_IDENTIFIER],
+        )
+        self._setupIndentCheckSoftChar()
+        self._fastCharData = FastCharData(
+            trigger_char=";",
+            style_list=(sci_constants.SCE_C_OPERATOR,),
+            skippable_chars_by_style={sci_constants.SCE_C_OPERATOR: "])"},
+            for_check=True,
+        )
 
     def get_lexer(self):
         if self._lexer is None:
@@ -93,6 +107,6 @@ class Greeter {
         return self._lexer
 
 
-# Compatibility with the pre-category language-extension loader.
 def registerLanguage(registry):
+    log.debug("Registering language TypeScript")
     registry.registerLanguage(koTypeScriptLanguage())

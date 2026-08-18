@@ -1,13 +1,9 @@
-# TypeScript for Komodo IDE/Edit 9.3.x
+# TypeScript for Komodo 9 — 0.1.3
 
-Версия 0.1.2.
+Минимальная автономная сборка language service.
 
-Изменения относительно 0.1.1:
-- языковой XPCOM-компонент отделён от линтера;
-- язык больше не импортирует process/which/koLint* при загрузке;
-- `_com_interfaces_` задан явно, как в официальном komodo-go;
-- contract линтера приведён к стандартному виду Komodo;
-- сохранены `.ts`, `.tsx`, `.mts`, `.cts`, folding и TypeScript keywords.
-
-После обновления рекомендуется полностью закрыть Komodo и удалить
-`~/.komodoide/9.3/XRE/startupCache` перед первым запуском.
+- нет зависимости от `koJavaScriptLanguage`;
+- нет линтера и Node.js-моста;
+- только штатные `KoLanguageBase`, `KoLexerLanguageService` и `SCLEX_CPP`;
+- JavaScript StateMap переиспользуется напрямую;
+- поддерживаются `.ts`, `.tsx`, `.mts`, `.cts`.
