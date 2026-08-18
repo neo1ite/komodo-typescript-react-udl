@@ -3,12 +3,16 @@
 
 Kept in a separate component module so a linter dependency can never prevent
 the TypeScript language component itself from loading.
+
+Compiler resolution order:
+1. project-local node_modules/typescript;
+2. compiler bundled into the 0.3.1+ XPI;
+3. a global tsc installation.
 """
 
 import json
 import logging
 import os
-import sys
 import tempfile
 
 from xpcom import components
@@ -21,12 +25,8 @@ import which
 log = logging.getLogger("koTypeScriptLinter")
 
 
-class KoTypeScriptLinter(object):
+class _KoTypeScriptLinterBase(object):
     _com_interfaces_ = [components.interfaces.koILinter]
-    _reg_desc_ = "Komodo TypeScript Compiler Linter"
-    _reg_clsid_ = "{96dbeeab-ec85-4f5b-a448-38837a05b3ae}"
-    _reg_contractid_ = "@activestate.com/koLinter?language=TypeScript;1"
-    _reg_categories_ = [("category-komodo-linter", "TypeScript")]
 
     def __init__(self):
         try:
@@ -57,8 +57,8 @@ class KoTypeScriptLinter(object):
             )
 
         log.warning(
-            "TypeScript compiler library not found; "
-            "install project-local or global 'typescript'"
+            "TypeScript compiler library not found; reinstall the 0.3.1+ "
+            "XPI or install project-local 'typescript'"
         )
         return koLintResults()
 
@@ -87,7 +87,18 @@ class KoTypeScriptLinter(object):
                 break
             current = parent
 
+    def _extension_root(self):
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+    def _bundled_typescript_js(self):
+        candidate = os.path.join(
+            self._extension_root(),
+            "vendor", "typescript", "lib", "typescript.js"
+        )
+        return candidate if os.path.isfile(candidate) else None
+
     def _find_typescript_js(self, filename):
+        # Prefer the project's compiler so diagnostics match its build.
         start = os.path.dirname(os.path.abspath(filename))
         for directory in self._walk_up(start):
             candidate = os.path.join(
@@ -96,6 +107,11 @@ class KoTypeScriptLinter(object):
             if os.path.isfile(candidate):
                 return candidate
 
+        bundled = self._bundled_typescript_js()
+        if bundled:
+            return bundled
+
+        # Compatibility fallback for development/unbundled installs.
         tsc = self._which("tsc")
         if not tsc:
             return None
@@ -143,3 +159,17 @@ class KoTypeScriptLinter(object):
             )
             results.addResult(result)
         return results
+
+
+class KoTypeScriptLinter(_KoTypeScriptLinterBase):
+    _reg_desc_ = "Komodo TypeScript Compiler Linter"
+    _reg_clsid_ = "{96dbeeab-ec85-4f5b-a448-38837a05b3ae}"
+    _reg_contractid_ = "@activestate.com/koLinter?language=TypeScript;1"
+    _reg_categories_ = [("category-komodo-linter", "TypeScript")]
+
+
+class KoReactTypeScriptLinter(_KoTypeScriptLinterBase):
+    _reg_desc_ = "Komodo ReactTypeScript Compiler Linter"
+    _reg_clsid_ = "{1ec767a8-930d-41cc-91d8-72566a6ccad3}"
+    _reg_contractid_ = "@activestate.com/koLinter?language=ReactTypeScript;1"
+    _reg_categories_ = [("category-komodo-linter", "ReactTypeScript")]
