@@ -3,10 +3,12 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 VERSION=$(sed -n 's|.*<em:version>\([^<]*\)</em:version>.*|\1|p' "$ROOT/install.rdf" | head -n 1)
-# TypeScript 7.0 intentionally ships without a stable programmatic API.
-# Komodo's semantic services need the JavaScript LanguageService API, so the
-# extension bundles the last JavaScript implementation: TypeScript 6.0.3.
-TYPESCRIPT_API_VERSION=${TYPESCRIPT_API_VERSION:-6.0.3}
+# Komodo 9 is commonly used on systems that still ship Node.js 12.
+# TypeScript 5.0.4 is the newest release whose package metadata supports
+# Node.js >= 12.20. TypeScript 5.1+ and 6.x require Node.js >= 14.17 and
+# cannot even be parsed by Node 12 because their generated runtime uses
+# newer JavaScript syntax such as nullish coalescing.
+TYPESCRIPT_API_VERSION=${TYPESCRIPT_API_VERSION:-5.0.4}
 
 if [ -z "$VERSION" ]; then
     echo "build.sh: cannot determine extension version from install.rdf" >&2
@@ -58,7 +60,7 @@ if [ -z "$TS_ROOT" ]; then
         exit 1
     fi
 
-    echo "build.sh: downloading TypeScript ${TYPESCRIPT_API_VERSION} JavaScript API runtime" >&2
+    echo "build.sh: downloading TypeScript ${TYPESCRIPT_API_VERSION} Node-12-compatible API runtime" >&2
     npm install \
         --prefix "$TMP/npm" \
         --no-save \
