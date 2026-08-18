@@ -14,7 +14,7 @@ OUT=${1:-"$ROOT/komodo-typescript-9.3.2-${VERSION}.xpi"}
 rm -f "$OUT"
 cd "$ROOT"
 zip -9 -r "$OUT" \
-    install.rdf chrome.manifest components content pylib support skin test \
+    install.rdf chrome.manifest components pylib support skin test \
     LICENSE README.md docs \
     -x '*/__pycache__/*' '*.pyc' '*.pyo' '.git/*'
 
