@@ -1,3 +1,3 @@
-skin komodotypescript classic/1.0 skin/
+skin neolitetypescript classic/1.0 skin/
 manifest components/component.manifest
-category agent-style-sheets komodotypescript-language-icons chrome://komodotypescript/skin/languages.css
+style chrome://komodo/content/komodo.xul chrome://neolitetypescript/skin/languages.css
