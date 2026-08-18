@@ -13,10 +13,10 @@
 - подсветка на базе стабильного lexer `SCLEX_CPP` из Komodo;
 - folding, комментарии, отступы по скобкам и ключевые слова TypeScript;
 - отдельные иконки `TS` и `TSX`;
-- диагностика через TypeScript-компилятор проекта;
+- диагностика компилятора для TypeScript и TSX;
 - поиск ближайшего `tsconfig.json`;
 - проверка текущего несохранённого содержимого редактора;
-- CodeIntel на базе TypeScript LanguageService начиная с версии 0.3.0:
+- CodeIntel на базе TypeScript LanguageService:
   - автодополнение;
   - calltips / signature help;
   - Go to Definition;
@@ -34,25 +34,19 @@ typescript_language@www.neolite.org
 
 Промежуточные сборки до 0.3.0 использовали GUID. Komodo считает новый ID другим расширением, поэтому старую GUID-версию нужно удалить через Add-ons Manager перед установкой текущей. Не следует удалять каталог установленного расширения руками: Mozilla add-on registry может сохранить устаревшие записи.
 
-В 0.3.0 также используется отдельный chrome namespace `neolitetypescript`, чтобы старые регистрации GUID-сборки не могли перехватить ресурсы иконок.
+## Поиск TypeScript-компилятора
 
-## Требования
+Начиная с версии 0.3.1 release-XPI является самодостаточным для семантических сервисов: `build.sh` включает в пакет закреплённую версию TypeScript compiler/LanguageService. При этом компилятор текущего проекта имеет приоритет.
 
-Для семантических сервисов нужны Node.js и TypeScript. Предпочтительна локальная зависимость проекта:
+Порядок поиска во время работы:
 
-```bash
-npm install --save-dev typescript
-```
+1. ближайший project-local `node_modules/typescript/lib/typescript.js`;
+2. встроенный в XPI `vendor/typescript/lib/typescript.js`;
+3. глобальный `tsc` как дополнительный fallback.
 
-Расширение ищет вверх от текущего файла:
+Поэтому для работы CodeIntel больше не требуется добавлять TypeScript-зависимость в каждый проект. Локальная зависимость проекта всё равно предпочтительнее, потому что семантика редактора тогда точно соответствует сборке проекта.
 
-```text
-node_modules/typescript/lib/typescript.js
-```
-
-и использует ближайший `tsconfig.json`, если он существует.
-
-Для одной только подсветки Node.js и TypeScript не требуются.
+Node.js остаётся необходимым для CodeIntel на базе LanguageService и диагностики компилятора. Для одной только подсветки Node.js не требуется.
 
 ## Установка
 
@@ -66,11 +60,20 @@ rm -rf ~/.komodoide/9.3/XRE/startupCache
 
 ## Сборка
 
-`build.sh` создаёт XPI напрямую и оставляет chrome-ресурсы незапакованными в JAR — это нужно для пользовательских иконок TS/TSX:
+`build.sh` создаёт XPI напрямую, оставляет chrome-ресурсы незапакованными в JAR и добавляет fallback TypeScript LanguageService:
 
 ```bash
 ./build.sh
 ```
+
+Скрипт использует по порядку:
+
+- явно заданный `TYPESCRIPT_ROOT`;
+- `node_modules/typescript` в каталоге исходников расширения;
+- глобальный TypeScript из npm;
+- если ничего не найдено, npm загружает закреплённую версию TypeScript во временный каталог сборки.
+
+Загруженная build-time копия не коммитится в репозиторий. В готовый XPI попадает только runtime-каталог `vendor/typescript`.
 
 По умолчанию XPI создаётся рядом с каталогом исходников; путь назначения можно передать аргументом.
 
@@ -85,7 +88,7 @@ rm -rf ~/.komodoide/9.3/XRE/startupCache
 
 ## Архитектура CodeIntel
 
-Старый JavaScript CILE parser Komodo 9 появился раньше современного TypeScript/TSX. Поэтому 0.3.0 не пытается разбирать TypeScript как старый JavaScript.
+Старый JavaScript CILE parser Komodo 9 появился раньше современного TypeScript/TSX, поэтому расширение не пытается разбирать TypeScript как старый JavaScript.
 
 Используется схема:
 
@@ -102,13 +105,13 @@ support/typescript-codeintel.js
 TypeScript LanguageService
 ```
 
-Так сохраняется штатный интерфейс Komodo для completion/calltip/definition, а семантический анализ выполняет TypeScript-компилятор проекта.
+Так сохраняется штатный интерфейс Komodo для completion/calltip/definition, а семантический анализ выполняет TypeScript LanguageService.
 
-CodeIntel bootstrap явно загружает `langinfo_typescript.py` в out-of-process LangInfo database Komodo. Это необходимо, потому что Komodo 9 создаёт базу LangInfo раньше, чем добавляет `pylib` каталог расширения в процесс CodeIntel.
+CodeIntel bootstrap явно загружает `langinfo_typescript.py` в out-of-process LangInfo database Komodo и регистрирует TypeScript aliases в `styles.StateMap`. Это необходимо из-за порядка инициализации CodeIntel в Komodo 9.
 
 ## Диагностика компилятора
 
-`components/koTypeScriptLinter.py` использует отдельный Node bridge для проверки текущего содержимого редактора. Предпочтителен project-local TypeScript, учитывается ближайший `tsconfig.json`.
+`components/koTypeScriptLinter.py` использует отдельный Node bridge для проверки текущего содержимого редактора. В 0.3.1 явно зарегистрированы linter contracts и для `TypeScript`, и для `ReactTypeScript`; используется тот же порядок поиска компилятора, что и в CodeIntel.
 
 ## Refactoring
 
@@ -127,6 +130,7 @@ Komodo IDE 9 поставляет refactoring отдельным системн�
 - `pylib/` — LangInfo и интеграция CodeIntel;
 - `support/` — Node.js bridges для диагностики и семантического CodeIntel;
 - `skin/` — иконки `TS` / `TSX` и оформление языков;
+- `vendor/` — встроенный TypeScript runtime внутри собранного XPI (создаётся `build.sh`, в git не хранится);
 - `test/` — тесты и fixtures.
 
 ## Совместимость
