@@ -1,0 +1,10 @@
+/* Komodo 9 language-menu/status-bar icons. */
+.languageicon[language="TypeScript"],
+treechildren::-moz-tree-image(LanguageTypeScript) {
+    list-style-image: url("chrome://komodotypescript/skin/typescript.svg") !important;
+}
+
+.languageicon[language="React TypeScript"],
+treechildren::-moz-tree-image(LanguageReactTypeScript) {
+    list-style-image: url("chrome://komodotypescript/skin/typescript-react.svg") !important;
+}

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Standalone TypeScript language service for Komodo 9.3.x."""
+"""TypeScript and React TypeScript language services for Komodo 9.3.x."""
 
 import logging
+
 from xpcom import components
 import styles
 from koLanguageServiceBase import (
@@ -38,6 +39,7 @@ class KoTypeScriptLexerLanguageService(KoLexerLanguageService):
 
 class koTypeScriptLanguage(KoLanguageBase, KoLanguageBaseDedentMixin):
     name = "TypeScript"
+
     _reg_desc_ = "%s Language" % name
     _reg_contractid_ = "@activestate.com/koLanguage?language=%s;1" % name
     _reg_clsid_ = "{2d204ae1-e7c0-4035-85d8-90a78a2cb647}"
@@ -48,7 +50,7 @@ class koTypeScriptLanguage(KoLanguageBase, KoLanguageBaseDedentMixin):
     internal = 0
     accessKey = "T"
     defaultExtension = ".ts"
-    extraFileAssociations = ["*.tsx", "*.mts", "*.cts"]
+    extraFileAssociations = ["*.mts", "*.cts"]
     modeNames = ["typescript", "ts"]
 
     commentDelimiterInfo = {
@@ -56,18 +58,21 @@ class koTypeScriptLanguage(KoLanguageBase, KoLanguageBaseDedentMixin):
         "block": [("/*", "*/")],
         "markup": "*",
     }
+
     supportsSmartIndent = "brace"
     _dedenting_statements = [u"throw", u"return", u"break", u"continue"]
-    namedBlockDescription = "TypeScript functions and classes"
+
+    namedBlockDescription = "TypeScript functions, interfaces and classes"
     namedBlockRE = (
-        r"^[ |\\t]*?(?:([\\w|\\.|_]*?)\\s*=\\s*function|"
-        r"function\\s*([\\w|_]*?)|class\\s+([\\w|_]+)|"
-        r"interface\\s+([\\w|_]+)).*?$"
+        r"^[ |\t]*?(?:([\w|\.|_]*?)\s*=\s*function|"
+        r"function\s*([\w|_]*?)|class\s+([\w|_]+)|"
+        r"interface\s+([\w|_]+)).*?$"
     )
 
     styleStdin = sci_constants.SCE_C_STDIN
     styleStdout = sci_constants.SCE_C_STDOUT
     styleStderr = sci_constants.SCE_C_STDERR
+
     _stateMap = styles.StateMap["JavaScript"].copy()
 
     sample = """interface Person {
@@ -77,13 +82,17 @@ class koTypeScriptLanguage(KoLanguageBase, KoLanguageBaseDedentMixin):
 
 class Greeter {
     constructor(private person: Person) {}
-    greet(): string { return `Hello, ${this.person.name}`; }
+
+    greet(): string {
+        return `Hello, ${this.person.name}`;
+    }
 }
 """
 
     def __init__(self):
         KoLanguageBase.__init__(self)
         KoLanguageBaseDedentMixin.__init__(self)
+
         self._style_info.update(
             _block_comment_styles=[
                 sci_constants.SCE_C_COMMENT,
@@ -93,11 +102,14 @@ class Greeter {
             ],
             _variable_styles=[sci_constants.SCE_C_IDENTIFIER],
         )
+
         self._setupIndentCheckSoftChar()
         self._fastCharData = FastCharData(
             trigger_char=";",
             style_list=(sci_constants.SCE_C_OPERATOR,),
-            skippable_chars_by_style={sci_constants.SCE_C_OPERATOR: "])"},
+            skippable_chars_by_style={
+                sci_constants.SCE_C_OPERATOR: "])",
+            },
             for_check=True,
         )
 
@@ -107,6 +119,41 @@ class Greeter {
         return self._lexer
 
 
+class koReactTypeScriptLanguage(koTypeScriptLanguage):
+    """TSX mode.
+
+    Komodo 9.3's Scintilla does not have a dedicated TSX lexer.  We therefore
+    deliberately reuse the stable TypeScript lexer and register TSX as a
+    separate language so file association, UI identity and future TSX-specific
+    services can evolve independently without destabilising .ts support.
+    """
+
+    name = "React TypeScript"
+
+    _reg_desc_ = "%s Language" % name
+    _reg_contractid_ = "@activestate.com/koLanguage?language=%s;1" % name
+    _reg_clsid_ = "{7f5c3ab7-3e2d-4b5f-b59d-3a1342c524e0}"
+    _reg_categories_ = [("komodo-language", name)]
+
+    accessKey = "R"
+    defaultExtension = ".tsx"
+    extraFileAssociations = []
+    modeNames = ["reacttypescript", "tsx", "typescriptjsx"]
+
+    namedBlockDescription = "React TypeScript functions, components, interfaces and classes"
+
+    sample = """interface Props {
+    title: string;
+}
+
+export function Header({ title }: Props) {
+    return <h1>{title}</h1>;
+}
+"""
+
+
 def registerLanguage(registry):
     log.debug("Registering language TypeScript")
     registry.registerLanguage(koTypeScriptLanguage())
+    log.debug("Registering language React TypeScript")
+    registry.registerLanguage(koReactTypeScriptLanguage())
