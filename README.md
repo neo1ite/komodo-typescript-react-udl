@@ -1,3 +1,9 @@
+## 0.1.1
+
+Исправлена регистрация XPCOM-компонентов для Komodo 9.3.x:
+в XPI добавлены `chrome.manifest` и `components/component.manifest`,
+включая `komodo-language-info` для TypeScript и регистрацию linter-компонента.
+
 # TypeScript для Komodo IDE 9.3.2
 
 Backport поддержки TypeScript для старой ветки Komodo 9.3.x без изменения файлов установленной IDE.
