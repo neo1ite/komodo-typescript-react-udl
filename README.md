@@ -19,9 +19,22 @@ The extension backports a practical TypeScript editing experience to the old Kom
 - TypeScript LanguageService-backed CodeIntel in version 0.3.0:
   - completion;
   - calltips / signature help;
-  - Go to Definition.
+  - Go to Definition;
+- Komodo IDE refactoring integration for TypeScript and TSX using Komodo's JavaScript refactoring engine as a compatibility layer.
 
 The internal TSX language name is deliberately `ReactTypeScript` without a space. Komodo 9's old chrome/XPCOM manifest parser treats whitespace inside contract identifiers as a separator.
+
+## Extension identity
+
+The extension ID is:
+
+```text
+typescript_language@www.neolite.org
+```
+
+Development builds prior to 0.3.0 used a GUID. Komodo treats the new ID as a different extension, so remove the old GUID-based build through the Add-ons Manager before installing the current package. Do not remove an installed extension directory manually: the Mozilla add-on registry can retain stale registration data.
+
+Version 0.3.0 also uses a dedicated chrome package namespace (`neolitetypescript`) so stale development registrations from the old GUID build cannot shadow the current icon resources.
 
 ## Requirements
 
@@ -45,7 +58,7 @@ Syntax highlighting itself does not require Node.js or TypeScript.
 
 Install the XPI through Komodo's Add-ons Manager and restart Komodo.
 
-After upgrading an already installed development build, it can be useful to clear the old startup cache while Komodo is closed:
+After upgrading an already installed development build, clear the old startup cache while Komodo is closed:
 
 ```bash
 rm -rf ~/.komodoide/9.3/XRE/startupCache
@@ -53,16 +66,13 @@ rm -rf ~/.komodoide/9.3/XRE/startupCache
 
 ## Building
 
-Komodo 9 uses its bundled Python 2.7 runtime. On current Linux systems, build SDK scripts through `mozpython` rather than relying on a system `python` executable:
+`build.sh` creates the XPI directly and keeps chrome resources unjarred, which is required for the custom TS/TSX language icons:
 
 ```bash
-KOMODO_HOME="${KOMODO_HOME:-$HOME/Komodo-IDE-9}"
-
-"$KOMODO_HOME/lib/mozilla/mozpython" \
-    "$KOMODO_HOME/lib/sdk/bin/koext" build
+./build.sh
 ```
 
-For a source-only ZIP-style development build, `build.sh` is also provided.
+The script writes the package next to the source directory unless an output path is supplied.
 
 ## Language layout
 
@@ -75,7 +85,7 @@ For a source-only ZIP-style development build, `build.sh` is also provided.
 
 ## CodeIntel architecture
 
-Komodo 9's native JavaScript CILE parser predates modern TypeScript and TSX. Version 0.3.0 therefore does not try to parse TypeScript as old JavaScript.
+Komodo 9's native JavaScript CILE parser predates modern TypeScript and TSX. Version 0.3.0 therefore does not parse TypeScript as old JavaScript.
 
 Instead:
 
@@ -94,31 +104,39 @@ TypeScript LanguageService
 
 This preserves Komodo's completion/calltip/definition UI while delegating semantic analysis to the TypeScript compiler used by the project.
 
+The CodeIntel bootstrap explicitly loads `langinfo_typescript.py` into Komodo's out-of-process LangInfo database. This is necessary because Komodo 9 creates that database before extension `pylib` directories are added to the CodeIntel process.
+
 ## Compiler diagnostics
 
 `components/koTypeScriptLinter.py` uses the companion Node bridge to validate the current editor content. Project-local TypeScript is preferred, and the nearest `tsconfig.json` is respected.
 
 ## Refactoring
 
-The public Komodo Edit 9 source tree does not contain the IDE-only refactoring service implementation used by Komodo IDE 9.3. The TypeScript semantic layer is intentionally kept separate so TypeScript-aware rename/refactoring can be connected to that IDE service once its exact XPCOM contract is known from the installed IDE build.
+Komodo IDE 9 ships refactoring as the separate system extension `refactoring@activestate.com`. The TypeScript extension registers these IDE contracts:
 
-CodeIntel does not depend on that refactoring component.
+```text
+@activestate.com/koRefactoringLanguageService;1?language=TypeScript
+@activestate.com/koRefactoringLanguageService;1?language=ReactTypeScript
+```
+
+The adapters reuse Komodo's JavaScript refactoring engine for JavaScript-compatible TypeScript/TSX syntax. This enables the native Komodo refactoring UI and removes the previous "Can't find a refactoring service" warning. Semantic completion and Go to Definition remain TypeScript-LanguageService-backed; the refactoring compatibility layer is intentionally separate.
 
 ## Project layout
 
-- `components/` — Komodo language and linter XPCOM components;
+- `components/` — Komodo language, linter and refactoring XPCOM components;
 - `pylib/` — LangInfo and CodeIntel integration;
-- `support/` — Node.js bridges for compiler diagnostics and semantic CodeIntel;
+- `support/` — Node.js bridges for diagnostics and semantic CodeIntel;
 - `skin/` — `TS` / `TSX` icons and language-menu styling;
-- `content/` — Komodo chrome resources;
 - `test/` — extension tests and fixtures.
 
 ## Compatibility
 
-Primary target and tested UI environment:
+Primary target:
 
 - Komodo IDE 9.3.2 build 88191;
 - Linux x86_64.
+
+Syntax highlighting also targets Komodo Edit 9.3.x. The refactoring adapters are useful only when Komodo's IDE refactoring extension is installed.
 
 ## License
 
