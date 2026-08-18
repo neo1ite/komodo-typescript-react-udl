@@ -7,3 +7,9 @@ component {7f5c3ab7-3e2d-4b5f-b59d-3a1342c524e0} koTypeScriptLanguage.py
 contract @activestate.com/koLanguage?language=ReactTypeScript;1 {7f5c3ab7-3e2d-4b5f-b59d-3a1342c524e0}
 category komodo-language ReactTypeScript @activestate.com/koLanguage?language=ReactTypeScript;1
 category komodo-language-info ReactTypeScript %7B%22name%22%3A%22ReactTypeScript%22%2C%22primary%22%3A1%2C%22internal%22%3A0%2C%22accessKey%22%3A%22R%22%2C%22defaultExtension%22%3A%22.tsx%22%2C%22extraFileAssociations%22%3A%5B%5D%2C%22modeNames%22%3A%5B%22reacttypescript%22%2C%22tsx%22%2C%22typescriptjsx%22%5D%7D
+
+component {58b104f0-0bc8-4b81-a537-178a323c0ff1} koTypeScriptRefactoringLanguageService.py
+contract @activestate.com/koRefactoringLanguageService;1?language=TypeScript {58b104f0-0bc8-4b81-a537-178a323c0ff1}
+
+component {629881e1-13a9-4524-a4e8-c8da94835487} koTypeScriptRefactoringLanguageService.py
+contract @activestate.com/koRefactoringLanguageService;1?language=ReactTypeScript {629881e1-13a9-4524-a4e8-c8da94835487}
