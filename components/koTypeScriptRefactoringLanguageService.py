@@ -2,10 +2,9 @@
 """Komodo IDE 9 refactoring adapters for TypeScript and TSX.
 
 Komodo IDE ships its refactoring implementation as the system extension
-`refactoring@activestate.com`.  The public Komodo Edit tree does not include
-those components, so load the JavaScript refactoring implementation from the
-installed IDE extension at runtime and reuse its well-tested Scintilla-based
-logic for the JavaScript-compatible parts of TypeScript/TSX.
+`refactoring@activestate.com`. Load the JavaScript refactoring implementation
+from that extension at runtime and reuse its Scintilla-based logic for the
+JavaScript-compatible parts of TypeScript/TSX.
 """
 
 import imp
@@ -15,27 +14,54 @@ from xpcom import components
 import directoryServiceUtils
 
 
-def _load_javascript_refactoring_module():
-    candidates = []
+def _candidate_javascript_refactoring_paths():
+    seen = set()
+
+    # Normal path: enumerate enabled extension directories from XRE.
     for extension_dir in directoryServiceUtils.getExtensionDirectories():
         path = os.path.join(
             extension_dir,
             "components",
             "koJavaScriptRefactoringLanguageService.py",
         )
-        if os.path.isfile(path):
-            candidates.append(path)
+        if path not in seen:
+            seen.add(path)
+            yield path
 
-    if not candidates:
-        raise ImportError(
-            "Komodo JavaScript refactoring component was not found; "
-            "the TypeScript refactoring adapter requires Komodo IDE's "
-            "refactoring@activestate.com extension"
+    # Robust fallback for Komodo IDE 9: its refactoring extension pylib is
+    # already on sys.path, even on installations where XREExtDL enumeration
+    # does not expose the bundled extension at component-registration time.
+    try:
+        import koRefactoringLanguageServiceBase
+    except ImportError:
+        pass
+    else:
+        pylib_dir = os.path.dirname(
+            os.path.abspath(koRefactoringLanguageServiceBase.__file__)
+        )
+        extension_dir = os.path.dirname(pylib_dir)
+        path = os.path.join(
+            extension_dir,
+            "components",
+            "koJavaScriptRefactoringLanguageService.py",
+        )
+        if path not in seen:
+            yield path
+
+
+def _load_javascript_refactoring_module():
+    for path in _candidate_javascript_refactoring_paths():
+        if not os.path.isfile(path):
+            continue
+        return imp.load_source(
+            "_komodo_javascript_refactoring_for_typescript",
+            path,
         )
 
-    return imp.load_source(
-        "_komodo_javascript_refactoring_for_typescript",
-        candidates[0],
+    raise ImportError(
+        "Komodo JavaScript refactoring component was not found; "
+        "the TypeScript refactoring adapter requires Komodo IDE's "
+        "refactoring@activestate.com extension"
     )
 
 
