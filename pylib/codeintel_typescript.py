@@ -3,7 +3,12 @@
 
 Komodo 9's JavaScript CILE parser predates modern TypeScript. This module
 keeps the CodeIntel UI/protocol but delegates semantic completion, calltips
-and definitions to the project TypeScript LanguageService through Node.js.
+and definitions to TypeScript LanguageService through Node.js.
+
+Resolution order for the TypeScript compiler library:
+1. project-local node_modules/typescript;
+2. compiler bundled into the XPI by build.sh;
+3. a global tsc/npm installation.
 """
 
 import json
@@ -66,6 +71,10 @@ _KIND_MAP = {
 }
 
 
+def _extension_root():
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def _walk_up(start):
     current = os.path.abspath(start)
     while True:
@@ -90,7 +99,15 @@ def _which(executable):
     return None
 
 
+def _bundled_typescript_js():
+    candidate = os.path.join(
+        _extension_root(), "vendor", "typescript", "lib", "typescript.js"
+    )
+    return candidate if os.path.isfile(candidate) else None
+
+
 def _find_typescript_js(filename):
+    # Prefer the project's compiler so editor semantics match its build.
     start = os.path.dirname(os.path.abspath(filename))
     for directory in _walk_up(start):
         candidate = os.path.join(
@@ -99,6 +116,12 @@ def _find_typescript_js(filename):
         if os.path.isfile(candidate):
             return candidate
 
+    # 0.3.1+ builds carry a pinned fallback LanguageService in the XPI.
+    bundled = _bundled_typescript_js()
+    if bundled:
+        return bundled
+
+    # Compatibility fallback for development/unbundled installs.
     tsc = _which("tsc")
     if not tsc:
         return None
@@ -120,8 +143,7 @@ def _find_typescript_js(filename):
 
 
 def _bridge_path():
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "support", "typescript-codeintel.js")
+    return os.path.join(_extension_root(), "support", "typescript-codeintel.js")
 
 
 def _buffer_text(buf):
@@ -143,8 +165,8 @@ def _call_bridge(buf, action, pos):
         raise RuntimeError("Node.js was not found in PATH")
     if not typescript_js:
         raise RuntimeError(
-            "TypeScript compiler library was not found; "
-            "install project-local 'typescript'"
+            "TypeScript compiler library was not found; reinstall the "
+            "0.3.1+ XPI or install project-local 'typescript'"
         )
     if not os.path.isfile(bridge):
         raise RuntimeError("TypeScript CodeIntel bridge is missing: %s" % bridge)
