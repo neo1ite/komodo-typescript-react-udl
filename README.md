@@ -14,12 +14,13 @@ The extension backports a practical TypeScript editing experience to the old Kom
 - folding, comments, brace-aware indentation and TypeScript keywords;
 - dedicated `TS` and `TSX` icons;
 - compiler diagnostics for both TypeScript and TSX;
-- nearest `tsconfig.json` discovery;
+- nearest `tsconfig.json` discovery for local projects;
 - diagnostics for the current unsaved editor buffer;
 - TypeScript LanguageService-backed CodeIntel:
   - completion;
   - calltips / signature help;
   - Go to Definition;
+- current-buffer semantic support for SCP/SFTP documents;
 - Komodo IDE refactoring integration for TypeScript and TSX using Komodo's JavaScript refactoring engine as a compatibility layer.
 
 The internal TSX language name is deliberately `ReactTypeScript` without a space. Komodo 9's old chrome/XPCOM manifest parser treats whitespace inside contract identifiers as a separator.
@@ -36,15 +37,15 @@ Development builds prior to 0.3.0 used a GUID. Komodo treats the new ID as a dif
 
 ## TypeScript compiler resolution
 
-Version 0.3.1 makes release XPI files self-contained for semantic services. `build.sh` bundles a pinned TypeScript compiler/LanguageService into the XPI while still preferring the compiler used by the current project.
+Version 0.3.1 makes release XPI files self-contained for semantic services. `build.sh` bundles a pinned TypeScript compiler/LanguageService into the XPI while still preferring the compiler used by the current local project.
 
 Runtime resolution order is:
 
-1. nearest project-local `node_modules/typescript/lib/typescript.js`;
+1. nearest project-local `node_modules/typescript/lib/typescript.js` for local files;
 2. bundled `vendor/typescript/lib/typescript.js` from the XPI;
 3. a global `tsc` installation as a compatibility fallback.
 
-This means users no longer have to add TypeScript to every project just to enable Komodo CodeIntel. A project-local TypeScript installation is still preferred because its semantics exactly match that project's build.
+The bundled fallback is TypeScript 5.0.4 so the extension remains usable with Node.js 12.20+ installations commonly found alongside older Komodo systems. A project-local TypeScript installation is still preferred for local projects because its semantics exactly match that project's build.
 
 Node.js remains required for LanguageService-backed CodeIntel and compiler diagnostics. Syntax highlighting itself does not require Node.js.
 
@@ -108,6 +109,14 @@ TypeScript LanguageService
 This preserves Komodo's completion/calltip/definition UI while delegating semantic analysis to TypeScript LanguageService.
 
 The CodeIntel bootstrap explicitly loads `langinfo_typescript.py` into Komodo's out-of-process LangInfo database and registers TypeScript aliases in Komodo's `styles.StateMap`. Both are required because Komodo 9 initializes its CodeIntel process before extension language metadata is fully available.
+
+## SCP/SFTP files
+
+Komodo passes remote documents to CodeIntel as URIs such as `scp://host/path/file.ts`. These must not be passed to Node's `path.resolve()`, which would turn them into bogus local paths such as `/home/user/scp:/host/path/file.ts`.
+
+Version 0.3.1 represents the current SCP/SFTP editor buffer as a synthetic TypeScript filename internally and translates definitions in that same buffer back to the original Komodo remote URI. This allows completion, calltips and Go to Definition for symbols defined in the current remote file without prompting to create a fake local file.
+
+A remote TypeScript project is not mirrored to the local machine by this extension. Therefore `tsconfig.json`, sibling source files and remote `node_modules` cannot yet be read by the Node LanguageService. Cross-file semantic navigation for SCP/SFTP projects requires a separate remote-filesystem bridge and is currently outside the single-buffer implementation.
 
 ## Compiler diagnostics
 
