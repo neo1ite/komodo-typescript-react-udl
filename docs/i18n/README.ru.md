@@ -14,12 +14,13 @@
 - folding, комментарии, отступы по скобкам и ключевые слова TypeScript;
 - отдельные иконки `TS` и `TSX`;
 - диагностика компилятора для TypeScript и TSX;
-- поиск ближайшего `tsconfig.json`;
+- поиск ближайшего `tsconfig.json` для локальных проектов;
 - проверка текущего несохранённого содержимого редактора;
 - CodeIntel на базе TypeScript LanguageService:
   - автодополнение;
   - calltips / signature help;
   - Go to Definition;
+- семантическая поддержка текущего файла при работе по SCP/SFTP;
 - интеграция со штатным refactoring UI Komodo IDE для TypeScript и TSX через совместимый слой на базе JavaScript refactoring engine.
 
 Внутреннее имя TSX-языка намеренно записано как `ReactTypeScript` без пробела: старый parser chrome/XPCOM manifest в Komodo 9 воспринимает пробел внутри contract ID как разделитель.
@@ -36,15 +37,15 @@ typescript_language@www.neolite.org
 
 ## Поиск TypeScript-компилятора
 
-Начиная с версии 0.3.1 release-XPI является самодостаточным для семантических сервисов: `build.sh` включает в пакет закреплённую версию TypeScript compiler/LanguageService. При этом компилятор текущего проекта имеет приоритет.
+Начиная с версии 0.3.1 release-XPI является самодостаточным для семантических сервисов: `build.sh` включает в пакет закреплённую версию TypeScript compiler/LanguageService. При этом для локального проекта его собственный компилятор имеет приоритет.
 
 Порядок поиска во время работы:
 
-1. ближайший project-local `node_modules/typescript/lib/typescript.js`;
+1. ближайший project-local `node_modules/typescript/lib/typescript.js` для локального файла;
 2. встроенный в XPI `vendor/typescript/lib/typescript.js`;
 3. глобальный `tsc` как дополнительный fallback.
 
-Поэтому для работы CodeIntel больше не требуется добавлять TypeScript-зависимость в каждый проект. Локальная зависимость проекта всё равно предпочтительнее, потому что семантика редактора тогда точно соответствует сборке проекта.
+Встроенный fallback — TypeScript 5.0.4, чтобы расширение оставалось совместимым с Node.js 12.20+, который всё ещё встречается на системах со старым Komodo. Для локальных проектов локальная зависимость TypeScript всё равно предпочтительнее, потому что семантика редактора тогда точно соответствует сборке проекта.
 
 Node.js остаётся необходимым для CodeIntel на базе LanguageService и диагностики компилятора. Для одной только подсветки Node.js не требуется.
 
@@ -108,6 +109,14 @@ TypeScript LanguageService
 Так сохраняется штатный интерфейс Komodo для completion/calltip/definition, а семантический анализ выполняет TypeScript LanguageService.
 
 CodeIntel bootstrap явно загружает `langinfo_typescript.py` в out-of-process LangInfo database Komodo и регистрирует TypeScript aliases в `styles.StateMap`. Это необходимо из-за порядка инициализации CodeIntel в Komodo 9.
+
+## Файлы по SCP/SFTP
+
+Komodo передаёт удалённые документы в CodeIntel в виде URI, например `scp://host/path/file.ts`. Такой URI нельзя передавать в Node `path.resolve()`: иначе он превращается в ложный локальный путь вида `/home/user/scp:/host/path/file.ts`.
+
+В версии 0.3.1 текущий SCP/SFTP-буфер внутри TypeScript LanguageService представлен синтетическим именем файла, а определения внутри этого же файла преобразуются обратно в исходный remote URI Komodo. Поэтому completion, calltips и Go to Definition для символов, объявленных в текущем удалённом файле, должны работать без предложения создать фиктивный локальный файл.
+
+Расширение пока не зеркалирует весь удалённый TypeScript-проект на локальную машину. Поэтому Node LanguageService не может читать удалённые `tsconfig.json`, соседние исходники и `node_modules`. Полноценная межфайловая семантика и навигация для SCP/SFTP требуют отдельного моста к удалённой файловой системе; текущая реализация ограничена активным remote buffer.
 
 ## Диагностика компилятора
 
