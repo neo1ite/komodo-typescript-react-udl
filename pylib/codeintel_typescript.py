@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """TypeScript / TSX CodeIntel for Komodo 9.3.x.
 
-The old Komodo JavaScript CILE parser does not understand modern TypeScript.
-This module therefore keeps Komodo's CodeIntel UI/protocol, but delegates
-semantic completion, calltips and definitions to the project TypeScript
-LanguageService through a small Node.js bridge.
+Komodo 9's JavaScript CILE parser predates modern TypeScript. This module
+keeps the CodeIntel UI/protocol but delegates semantic completion, calltips
+and definitions to the project TypeScript LanguageService through Node.js.
 """
 
 import json
@@ -12,9 +11,12 @@ import logging
 import os
 import subprocess
 
+import SilverCity
+from SilverCity.Lexer import Lexer
+from SilverCity import ScintillaConstants
+
 from codeintel2.buffer import Buffer
 from codeintel2.common import *
-from codeintel2.lang_javascript import JavaScriptLexer
 from codeintel2.langintel import LangIntel
 
 try:
@@ -30,6 +32,16 @@ except ImportError:
 
 log = logging.getLogger("codeintel.typescript")
 
+
+_TYPESCRIPT_KEYWORDS = sorted(set("""
+abstract any as async await boolean break case catch class const constructor
+continue debugger declare default delete do else enum export extends false
+finally for from function get if implements import in instanceof interface
+is keyof let module namespace never new null number object of package private
+protected public readonly require return set static string super switch symbol
+this throw true try type typeof undefined unique unknown var void while with
+yield
+""".split()))
 
 _KIND_MAP = {
     "method": "function",
@@ -93,7 +105,9 @@ def _find_typescript_js(filename):
 
     real_tsc = os.path.realpath(tsc)
     candidates = [
-        os.path.abspath(os.path.join(os.path.dirname(real_tsc), "..", "lib", "typescript.js")),
+        os.path.abspath(os.path.join(
+            os.path.dirname(real_tsc), "..", "lib", "typescript.js"
+        )),
         os.path.abspath(os.path.join(
             os.path.dirname(tsc), "..", "lib", "node_modules",
             "typescript", "lib", "typescript.js"
@@ -129,7 +143,8 @@ def _call_bridge(buf, action, pos):
         raise RuntimeError("Node.js was not found in PATH")
     if not typescript_js:
         raise RuntimeError(
-            "TypeScript compiler library was not found; install project-local 'typescript'"
+            "TypeScript compiler library was not found; "
+            "install project-local 'typescript'"
         )
     if not os.path.isfile(bridge):
         raise RuntimeError("TypeScript CodeIntel bridge is missing: %s" % bridge)
@@ -159,11 +174,49 @@ def _call_bridge(buf, action, pos):
     return result
 
 
-class _TypeScriptLexer(JavaScriptLexer):
+def _ensure_langinfo(mgr):
+    """Load extension LangInfo before registering CodeIntel lexers.
+
+    Komodo's out-of-process CodeIntel manager receives extension pylib paths
+    after its default LangInfo database has already been created. Therefore an
+    extension's langinfo_*.py can be absent from mgr.lidb even though its
+    codeintel_*.py has been discovered. Load this pylib explicitly.
+    """
+    missing = []
+    for lang in ("TypeScript", "ReactTypeScript"):
+        try:
+            mgr.lidb.langinfo_from_lang(lang)
+        except Exception:
+            missing.append(lang)
+
+    if not missing:
+        return
+
+    pylib_dir = os.path.dirname(os.path.abspath(__file__))
+    mgr.lidb._load_dir(pylib_dir)
+
+    for lang in missing:
+        mgr.lidb.langinfo_from_lang(lang)
+
+
+class _TypeScriptLexer(Lexer):
     lang = "TypeScript"
 
+    def __init__(self, mgr):
+        self._properties = SilverCity.PropertySet()
+        self._lexer = SilverCity.find_lexer_module_by_id(
+            ScintillaConstants.SCLEX_CPP
+        )
+        self._keyword_lists = [
+            SilverCity.WordList(" ".join(_TYPESCRIPT_KEYWORDS)),
+            SilverCity.WordList(),
+            SilverCity.WordList(),
+            SilverCity.WordList(),
+            SilverCity.WordList(),
+        ]
 
-class _ReactTypeScriptLexer(JavaScriptLexer):
+
+class _ReactTypeScriptLexer(_TypeScriptLexer):
     lang = "ReactTypeScript"
 
 
@@ -172,7 +225,8 @@ class _TypeScriptBuffer(Buffer):
     cpln_stop_chars = " ()*-=+<>{}[]^&|;:'\",?~`!@#%\\/"
 
     def defn_trg_from_pos(self, pos, lang=None):
-        return Trigger(lang or self.lang, TRG_FORM_DEFN, "definition", pos, False)
+        return Trigger(lang or self.lang, TRG_FORM_DEFN,
+                       "definition", pos, False)
 
     def defns_from_trg(self, trg, timeout=None, ctlr=None):
         self.async_eval_at_trg(trg, ctlr)
@@ -202,9 +256,9 @@ class _TypeScriptLangIntel(LangIntel):
         if ch == ".":
             return Trigger(self.lang, TRG_FORM_CPLN, "members", pos, implicit)
         if ch == "(":
-            return Trigger(self.lang, TRG_FORM_CALLTIP, "signature", pos, implicit)
+            return Trigger(self.lang, TRG_FORM_CALLTIP,
+                           "signature", pos, implicit)
 
-        # Light-weight identifier completion after two identifier characters.
         if ch.isalnum() or ch in "_$":
             start = pos - 1
             while start > 0:
@@ -213,14 +267,14 @@ class _TypeScriptLangIntel(LangIntel):
                     break
                 start -= 1
             if pos - start >= 2:
-                return Trigger(self.lang, TRG_FORM_CPLN, "names", pos, implicit)
+                return Trigger(self.lang, TRG_FORM_CPLN,
+                               "names", pos, implicit)
         return None
 
     def preceding_trg_from_pos(self, buf, pos, curr_pos,
                                preceding_trg_terminators=None, DEBUG=False):
         if curr_pos < 0:
             return None
-        # Explicit Ctrl+J asks TypeScript at the actual current cursor.
         return Trigger(self.lang, TRG_FORM_CPLN, "names", curr_pos, False)
 
     def async_eval_at_trg(self, buf, trg, ctlr):
@@ -295,6 +349,8 @@ class ReactTypeScriptLangIntel(_TypeScriptLangIntel):
 
 
 def register(mgr):
+    _ensure_langinfo(mgr)
+
     mgr.set_lang_info(
         "TypeScript",
         silvercity_lexer=_TypeScriptLexer(mgr),
