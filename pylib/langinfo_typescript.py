@@ -2,6 +2,20 @@
 """LangInfo definitions for TypeScript support in Komodo 9."""
 
 from langinfo import LangInfo
+import styles
+
+
+# CodeIntel's base Buffer asks Komodo's styles.StateMap for comment/string/
+# number style classes during construction.  TypeScript and TSX use the same
+# SCLEX_CPP style numbers as JavaScript, so explicitly install aliases in the
+# out-of-process CodeIntel interpreter as well as in the editor language
+# service.  Without this, get-scopes/get-sections fails with
+# KeyError: 'TypeScript'.
+if "TypeScript" not in styles.StateMap:
+    styles.StateMap["TypeScript"] = styles.StateMap["JavaScript"].copy()
+
+if "ReactTypeScript" not in styles.StateMap:
+    styles.StateMap["ReactTypeScript"] = styles.StateMap["JavaScript"].copy()
 
 
 _KEYWORDS = set("""
