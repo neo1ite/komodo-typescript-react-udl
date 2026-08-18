@@ -156,6 +156,25 @@ def _buffer_text(buf):
         return text.decode("utf-8", "replace")
 
 
+def _safe_cwd(path):
+    """Return an existing directory for subprocess cwd, or None.
+
+    Komodo can expose synthetic/stale document paths (for example through
+    remote mappings or restored sessions). Passing their non-existent parent
+    directory to subprocess.Popen raises ENOENT before the Node bridge starts.
+    """
+    if not path:
+        return None
+    current = os.path.dirname(os.path.abspath(path))
+    while current and current != os.path.dirname(current):
+        if os.path.isdir(current):
+            return current
+        current = os.path.dirname(current)
+    if current and os.path.isdir(current):
+        return current
+    return None
+
+
 def _call_bridge(buf, action, pos):
     node = _which("node")
     typescript_js = _find_typescript_js(buf.path)
@@ -183,7 +202,7 @@ def _call_bridge(buf, action, pos):
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd=os.path.dirname(os.path.abspath(buf.path)) or None,
+        cwd=_safe_cwd(buf.path),
         env=os.environ.copy(),
     )
     stdout, stderr = proc.communicate(payload.encode("utf-8"))
