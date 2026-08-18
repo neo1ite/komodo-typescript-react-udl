@@ -1,29 +1,18 @@
 # TypeScript for Komodo 9
 
-Версия 0.2.0 для Komodo IDE/Edit 9.3.x.
+Версия 0.2.1 для Komodo IDE/Edit 9.3.x.
 
-## Языки
+Поддерживаемые режимы:
 
-- `TypeScript`: `.ts`, `.mts`, `.cts`
-- `React TypeScript`: `.tsx`
+- `TypeScript`: `.ts`, `.mts`, `.cts`;
+- `ReactTypeScript`: `.tsx`.
 
-`React TypeScript` реализован внутри того же XPI, а не отдельным расширением:
-оба режима используют один стабильный TypeScript/Scintilla lexer, но имеют
-разные XPCOM language services, файловые ассоциации и иконки.
+`ReactTypeScript` намеренно записан без пробела во внутреннем имени:
+старый chrome/XPCOM manifest parser Komodo 9.3 разбивает contract ID по
+пробелам и не может зарегистрировать язык с пробелом в имени.
 
-Komodo 9.3 не содержит отдельного TSX lexer, поэтому JSX-разметка внутри
-`.tsx` использует тот же SCLEX_CPP, что и основной TypeScript. Отдельный
-режим нужен уже сейчас для корректной идентификации `.tsx` и оставляет
-возможность позже подключить TSX-aware parser/language service.
+Иконки `TS` и `TSX` подключаются как глобальная stylesheet через
+`agent-style-sheets`; XUL overlay для этого не требуется.
 
-## Иконки
-
-Использованы собственные Komodo-style плашки `TS` и `TSX`, а не официальные
-брендовые логотипы. Это намеренно: официального логотипа "React TypeScript"
-нет, а единый визуальный стиль лучше соответствует Komodo 9.
-
-## Установка
-
-Установить XPI через Add-ons и перезапустить Komodo.
-При обновлении со старой версии при необходимости удалить:
+После обновления рекомендуется полностью закрыть Komodo и удалить
 `~/.komodoide/9.3/XRE/startupCache`.

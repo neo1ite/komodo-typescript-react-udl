@@ -1,4 +1,3 @@
-content komodotypescript content/
 skin komodotypescript classic/1.0 skin/
 manifest components/component.manifest
-overlay chrome://komodo/content/komodo.xul chrome://komodotypescript/content/overlay.xul
+category agent-style-sheets komodotypescript-language-icons chrome://komodotypescript/skin/languages.css

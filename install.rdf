@@ -4,7 +4,7 @@
   <Description about="urn:mozilla:install-manifest">
     <em:id>{e84deefe-00c5-4d6e-b29b-c08b66ab246f}</em:id>
     <em:name>TypeScript for Komodo 9</em:name>
-    <em:version>0.2.0</em:version>
+    <em:version>0.2.1</em:version>
     <em:description>TypeScript and TypeScript React (TSX) language support for Komodo IDE/Edit 9.3.x.</em:description>
     <em:creator>Komodo TypeScript Backport</em:creator>
     <em:type>2</em:type>

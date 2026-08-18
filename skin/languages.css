@@ -4,7 +4,7 @@ treechildren::-moz-tree-image(LanguageTypeScript) {
     list-style-image: url("chrome://komodotypescript/skin/typescript.svg") !important;
 }
 
-.languageicon[language="React TypeScript"],
+.languageicon[language="ReactTypeScript"],
 treechildren::-moz-tree-image(LanguageReactTypeScript) {
     list-style-image: url("chrome://komodotypescript/skin/typescript-react.svg") !important;
 }

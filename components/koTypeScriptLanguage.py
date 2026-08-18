@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""TypeScript and React TypeScript language services for Komodo 9.3.x."""
+"""TypeScript and ReactTypeScript language services for Komodo 9.3.x."""
 
 import logging
 
@@ -128,7 +128,7 @@ class koReactTypeScriptLanguage(koTypeScriptLanguage):
     services can evolve independently without destabilising .ts support.
     """
 
-    name = "React TypeScript"
+    name = "ReactTypeScript"
 
     _reg_desc_ = "%s Language" % name
     _reg_contractid_ = "@activestate.com/koLanguage?language=%s;1" % name
@@ -140,7 +140,7 @@ class koReactTypeScriptLanguage(koTypeScriptLanguage):
     extraFileAssociations = []
     modeNames = ["reacttypescript", "tsx", "typescriptjsx"]
 
-    namedBlockDescription = "React TypeScript functions, components, interfaces and classes"
+    namedBlockDescription = "ReactTypeScript functions, components, interfaces and classes"
 
     sample = """interface Props {
     title: string;
@@ -155,5 +155,5 @@ export function Header({ title }: Props) {
 def registerLanguage(registry):
     log.debug("Registering language TypeScript")
     registry.registerLanguage(koTypeScriptLanguage())
-    log.debug("Registering language React TypeScript")
+    log.debug("Registering language ReactTypeScript")
     registry.registerLanguage(koReactTypeScriptLanguage())
