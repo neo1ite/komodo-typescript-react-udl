@@ -36,6 +36,35 @@ function readStdin() {
     });
 }
 
+function isRemoteUri(fileName) {
+    return /^[A-Za-z][A-Za-z0-9+.-]*:\/\/+/.test(String(fileName || ''));
+}
+
+function virtualRemoteFileName(uri) {
+    const match = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/(.*)$/.exec(String(uri || ''));
+    if (!match) return '/__komodo_remote__/remote.ts';
+
+    const scheme = match[1].replace(/[^A-Za-z0-9._-]/g, '_');
+    const parts = match[2].split('/').filter(Boolean).map(part =>
+        part.replace(/[^A-Za-z0-9._-]/g, '_')
+    );
+
+    if (!parts.length) parts.push('remote.ts');
+    return path.posix.join('/__komodo_remote__', scheme, ...parts);
+}
+
+function defaultOptions() {
+    return {
+        allowJs: true,
+        allowSyntheticDefaultImports: true,
+        esModuleInterop: true,
+        jsx: ts.JsxEmit.ReactJSX || ts.JsxEmit.React,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.NodeJs,
+        target: ts.ScriptTarget.ESNext
+    };
+}
+
 function findConfig(fileName) {
     let dir = path.dirname(path.resolve(fileName));
     while (true) {
@@ -47,21 +76,18 @@ function findConfig(fileName) {
     }
 }
 
-function parseProject(fileName) {
+function parseProject(fileName, remote) {
+    // Node cannot read Komodo SCP/SFTP URIs. For remote buffers we therefore
+    // build a single-file virtual project from the editor contents. This keeps
+    // completion/calltips/definitions within the current remote file working
+    // without pretending that the remote URI is a local filesystem path.
+    if (remote) {
+        return {fileNames: [fileName], options: defaultOptions()};
+    }
+
     const config = findConfig(fileName);
     if (!config) {
-        return {
-            fileNames: [path.resolve(fileName)],
-            options: {
-                allowJs: true,
-                allowSyntheticDefaultImports: true,
-                esModuleInterop: true,
-                jsx: ts.JsxEmit.ReactJSX || ts.JsxEmit.React,
-                module: ts.ModuleKind.ESNext,
-                moduleResolution: ts.ModuleResolutionKind.NodeJs,
-                target: ts.ScriptTarget.ESNext
-            }
-        };
+        return {fileNames: [path.resolve(fileName)], options: defaultOptions()};
     }
 
     const raw = ts.readConfigFile(config, ts.sys.readFile);
@@ -75,37 +101,60 @@ function displayParts(parts) {
 }
 
 function makeService(req) {
-    const fileName = path.resolve(req.file);
-    const project = parseProject(fileName);
+    const originalFile = String(req.file || '');
+    const remote = isRemoteUri(originalFile);
+    const fileName = remote ? virtualRemoteFileName(originalFile) : path.resolve(originalFile);
+    const project = parseProject(fileName, remote);
     if (project.fileNames.indexOf(fileName) === -1) project.fileNames.push(fileName);
 
     const currentText = String(req.text || '');
     const versions = Object.create(null);
     versions[fileName] = '1';
+    const currentDir = path.dirname(fileName);
+
+    function resolveName(name) {
+        return path.resolve(name);
+    }
+
+    function isCurrent(name) {
+        return resolveName(name) === fileName;
+    }
 
     const host = {
         getCompilationSettings: () => project.options,
         getScriptFileNames: () => project.fileNames,
-        getScriptVersion: name => versions[path.resolve(name)] || '0',
+        getScriptVersion: name => versions[resolveName(name)] || '0',
         getScriptSnapshot: name => {
-            const resolved = path.resolve(name);
+            const resolved = resolveName(name);
             if (resolved === fileName) return ts.ScriptSnapshot.fromString(currentText);
             try { return ts.ScriptSnapshot.fromString(fs.readFileSync(resolved, 'utf8')); }
             catch (e) { return undefined; }
         },
-        getCurrentDirectory: () => path.dirname(fileName),
+        getCurrentDirectory: () => currentDir,
         getDefaultLibFileName: options => ts.getDefaultLibFilePath(options),
-        fileExists: ts.sys.fileExists,
-        readFile: ts.sys.readFile,
+        fileExists: name => isCurrent(name) || ts.sys.fileExists(name),
+        readFile: name => isCurrent(name) ? currentText : ts.sys.readFile(name),
         readDirectory: ts.sys.readDirectory,
-        directoryExists: ts.sys.directoryExists,
+        directoryExists: name => {
+            const resolved = resolveName(name);
+            if (remote && resolved === currentDir) return true;
+            return ts.sys.directoryExists ? ts.sys.directoryExists(name) : fs.existsSync(name);
+        },
         getDirectories: ts.sys.getDirectories,
-        realpath: ts.sys.realpath,
+        realpath: name => {
+            if (isCurrent(name)) return fileName;
+            return ts.sys.realpath ? ts.sys.realpath(name) : resolveName(name);
+        },
         useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames,
         getNewLine: () => ts.sys.newLine
     };
 
-    return {service: ts.createLanguageService(host, ts.createDocumentRegistry()), fileName};
+    return {
+        service: ts.createLanguageService(host, ts.createDocumentRegistry()),
+        fileName,
+        originalFile,
+        remote
+    };
 }
 
 function completion(service, fileName, pos) {
@@ -135,20 +184,29 @@ function signature(service, fileName, pos) {
     return {calltips};
 }
 
-function definition(service, fileName, pos) {
-    const defs = service.getDefinitionAtPosition(fileName, pos) || [];
+function definition(ctx, pos) {
+    const defs = ctx.service.getDefinitionAtPosition(ctx.fileName, pos) || [];
     return {
         definitions: defs.map(def => {
             let line = 1;
             try {
-                const program = service.getProgram();
+                const program = ctx.service.getProgram();
                 const sf = program && program.getSourceFile(def.fileName);
                 if (sf) line = sf.getLineAndCharacterOfPosition(def.textSpan.start).line + 1;
             } catch (e) {}
+
+            // TypeScript sees an SCP/SFTP buffer under a synthetic local path.
+            // Translate definitions in the current virtual file back to the
+            // original Komodo URI so Go to Definition reuses the remote buffer
+            // instead of prompting to create '/home/.../scp:/...'.
+            const definitionFile = ctx.remote && path.resolve(def.fileName) === ctx.fileName
+                ? ctx.originalFile
+                : def.fileName;
+
             return {
                 name: def.name || '',
                 kind: def.kind || 'variable',
-                file: def.fileName,
+                file: definitionFile,
                 line
             };
         })
@@ -162,7 +220,7 @@ readStdin().then(req => {
     switch (req.action) {
         case 'completion': result = completion(ctx.service, ctx.fileName, pos); break;
         case 'signature': result = signature(ctx.service, ctx.fileName, pos); break;
-        case 'definition': result = definition(ctx.service, ctx.fileName, pos); break;
+        case 'definition': result = definition(ctx, pos); break;
         default: result = {error: 'unknown action: ' + req.action};
     }
     process.stdout.write(JSON.stringify(result));
