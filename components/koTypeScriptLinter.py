@@ -43,7 +43,7 @@ class _KoTypeScriptLinterBase(object):
             return koLintResults()
 
         filename = self._document_filename(request)
-        cwd = request.cwd or os.path.dirname(filename) or None
+        cwd = self._safe_cwd(request.cwd or os.path.dirname(filename))
 
         node = self._which("node")
         typescript_js = self._find_typescript_js(filename)
@@ -71,6 +71,20 @@ class _KoTypeScriptLinterBase(object):
             pass
         cwd = request.cwd or tempfile.gettempdir()
         return os.path.join(cwd, "__komodo_unsaved__.ts")
+
+    def _safe_cwd(self, path):
+        if not path:
+            return None
+        current = os.path.abspath(path)
+        if not os.path.isdir(current):
+            current = os.path.dirname(current)
+        while current and current != os.path.dirname(current):
+            if os.path.isdir(current):
+                return current
+            current = os.path.dirname(current)
+        if current and os.path.isdir(current):
+            return current
+        return None
 
     def _which(self, executable):
         try:
