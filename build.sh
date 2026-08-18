@@ -14,20 +14,32 @@ OUT=${1:-"$ROOT/komodo-typescript-9.3.2-${VERSION}.xpi"}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/komodo-typescript-build.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 
+typescript_version() {
+    sed -n 's|.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*|\1|p' \
+        "$1/package.json" 2>/dev/null | head -n 1
+}
+
+is_pinned_typescript() {
+    [ -f "$1/lib/typescript.js" ] || return 1
+    [ "$(typescript_version "$1")" = "$TYPESCRIPT_VERSION" ]
+}
+
 find_typescript_root() {
+    # Explicit override is intentionally trusted even when it is a different
+    # version; this is useful for development and compatibility testing.
     if [ -n "${TYPESCRIPT_ROOT:-}" ] && [ -f "$TYPESCRIPT_ROOT/lib/typescript.js" ]; then
         printf '%s\n' "$TYPESCRIPT_ROOT"
         return 0
     fi
 
-    if [ -f "$ROOT/node_modules/typescript/lib/typescript.js" ]; then
+    if is_pinned_typescript "$ROOT/node_modules/typescript"; then
         printf '%s\n' "$ROOT/node_modules/typescript"
         return 0
     fi
 
     if command -v npm >/dev/null 2>&1; then
         GLOBAL_ROOT=$(npm root -g 2>/dev/null || true)
-        if [ -n "$GLOBAL_ROOT" ] && [ -f "$GLOBAL_ROOT/typescript/lib/typescript.js" ]; then
+        if [ -n "$GLOBAL_ROOT" ] && is_pinned_typescript "$GLOBAL_ROOT/typescript"; then
             printf '%s\n' "$GLOBAL_ROOT/typescript"
             return 0
         fi
