@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<RDF xmlns="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:em="http://www.mozilla.org/2004/em-rdf#">
+  <Description about="urn:mozilla:install-manifest">
+    <em:id>{e84deefe-00c5-4d6e-b29b-c08b66ab246f}</em:id>
+    <em:name>TypeScript for Komodo 9</em:name>
+    <em:version>0.1.0</em:version>
+    <em:description>TypeScript language support and compiler diagnostics for Komodo IDE/Edit 9.3.x.</em:description>
+    <em:creator>Komodo TypeScript Backport</em:creator>
+    <em:type>2</em:type>
+    <em:unpack>true</em:unpack>
+
+    <em:targetApplication>
+      <Description>
+        <!-- Komodo IDE -->
+        <em:id>{36E66FA0-F259-11D9-850E-000D935D3368}</em:id>
+        <em:minVersion>9.3</em:minVersion>
+        <em:maxVersion>9.3.*</em:maxVersion>
+      </Description>
+    </em:targetApplication>
+
+    <em:targetApplication>
+      <Description>
+        <!-- Komodo Edit -->
+        <em:id>{b1042fb5-9e9c-11db-b107-000d935d3368}</em:id>
+        <em:minVersion>9.3</em:minVersion>
+        <em:maxVersion>9.3.*</em:maxVersion>
+      </Description>
+    </em:targetApplication>
+  </Description>
+</RDF>
