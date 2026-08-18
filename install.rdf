@@ -2,7 +2,7 @@
 <RDF xmlns="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
      xmlns:em="http://www.mozilla.org/2004/em-rdf#">
   <Description about="urn:mozilla:install-manifest">
-    <em:id>{e84deefe-00c5-4d6e-b29b-c08b66ab246f}</em:id>
+    <em:id>typescript_language@www.neolite.org</em:id>
     <em:name>TypeScript for Komodo 9</em:name>
     <em:version>0.3.0</em:version>
     <em:description>TypeScript and React TypeScript (TSX) support for Komodo IDE/Edit 9.3.x, including TypeScript LanguageService-backed CodeIntel.</em:description>
