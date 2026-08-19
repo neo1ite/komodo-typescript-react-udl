@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## 0.3.2 — unreleased
+## 0.3.2 — 2026-08-19
 
 ### Added
 
@@ -15,16 +15,31 @@ All notable changes to this project are documented here.
 - implicit completion and calltip trigger integration now follows Komodo CodeIntel trigger-position semantics: completion replacement starts at the identifier prefix while LanguageService queries use the actual cursor position;
 - TypeScript LangIntel now uses Komodo's `ParenStyleCalltipIntelMixin` for calltip argument tracking;
 - remote CodeIntel always uses the bundled/global TypeScript runtime rather than attempting to interpret an SCP/SFTP URI as a local project path;
-- the persistent bridge loads TypeScript once, but creates a fresh document registry per request to avoid stale editor buffers.
+- the persistent bridge loads TypeScript once, but creates a fresh document registry per request to avoid stale editor buffers;
+- automatic completion/calltip popups follow Komodo's existing CodeIntel trigger preferences; the extension does not override user settings. Manual CodeIntel via `Ctrl+J` remains available when automatic triggering is disabled.
 
-### Validation target
+### Fixed
 
-Before tagging 0.3.2, verify in Komodo IDE 9.3.2 on both `.ts` and `.tsx`:
+- SCP/SFTP linting no longer reports unverifiable semantic errors such as `Cannot find module 'react'` or unresolved remote-project names;
+- member completion is correctly returned through Komodo's CodeIntel UI;
+- signature calltips are correctly returned through Komodo's CodeIntel UI;
+- Go to Definition continues to translate synthetic remote filenames back to the original Komodo SCP/SFTP URI instead of prompting to create a fake local `scp:/...` path.
 
-- `obj.` shows member completion;
-- `sum(` shows a signature calltip;
-- Go to Definition still works in local and SCP/SFTP buffers;
-- SCP/SFTP linting reports syntax errors but no false `Cannot find module` / unresolved-name diagnostics.
+### Validated
+
+Live validation on Komodo IDE 9.3.2 confirmed:
+
+- `obj.` member completion (`alpha`, `beta`);
+- `sum(` signature calltip (`sum(a: number, b: number): number`);
+- Go to Definition in an SCP-backed TypeScript buffer;
+- syntax-only SCP/SFTP linting without false missing-module/name diagnostics;
+- manual completion/calltips via `Ctrl+J`;
+- automatic completion after enabling Komodo's `codeintel_completion_triggering_enabled` preference.
+
+### Known limitations
+
+- SCP/SFTP support is still single-buffer only: the local LanguageService cannot read remote `tsconfig.json`, sibling/imported source files, remote `node_modules` or type declarations;
+- cross-file semantic completion, diagnostics and navigation for remote projects therefore remain limited.
 
 ### Deferred to 0.4.0
 
