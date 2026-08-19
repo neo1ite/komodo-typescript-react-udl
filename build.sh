@@ -5,9 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 VERSION=$(sed -n 's|.*<em:version>\([^<]*\)</em:version>.*|\1|p' "$ROOT/install.rdf" | head -n 1)
 # Komodo 9 is commonly used on systems that still ship Node.js 12.
 # TypeScript 5.0.4 is the newest release whose package metadata supports
-# Node.js >= 12.20. TypeScript 5.1+ and 6.x require Node.js >= 14.17 and
-# cannot even be parsed by Node 12 because their generated runtime uses
-# newer JavaScript syntax such as nullish coalescing.
+# Node.js >= 12.20. TypeScript 5.1+ and 6.x require Node.js >= 14.17.
 TYPESCRIPT_API_VERSION=${TYPESCRIPT_API_VERSION:-5.0.4}
 
 if [ -z "$VERSION" ]; then
@@ -30,8 +28,6 @@ is_pinned_typescript_api() {
 }
 
 find_typescript_root() {
-    # Explicit override is trusted for development/compatibility testing, but
-    # it still must expose the JavaScript programmatic API expected by Komodo.
     if [ -n "${TYPESCRIPT_ROOT:-}" ] && [ -f "$TYPESCRIPT_ROOT/lib/typescript.js" ]; then
         printf '%s\n' "$TYPESCRIPT_ROOT"
         return 0
@@ -76,6 +72,18 @@ if [ ! -f "$TS_ROOT/lib/typescript.js" ]; then
     exit 1
 fi
 
+if ! command -v node >/dev/null 2>&1; then
+    echo "build.sh: node is required to run TypeScript bridge smoke tests" >&2
+    exit 1
+fi
+
+echo "build.sh: running TypeScript bridge smoke tests" >&2
+node \
+    "$ROOT/test/smoke-codeintel.js" \
+    "$ROOT/support/typescript-codeintel.js" \
+    "$ROOT/support/typescript-bridge.js" \
+    "$TS_ROOT/lib/typescript.js"
+
 mkdir -p "$TMP/vendor/typescript"
 cp -a "$TS_ROOT/lib" "$TMP/vendor/typescript/"
 for file in LICENSE.txt package.json README.md SECURITY.md ThirdPartyNoticeText.txt; do
@@ -88,7 +96,7 @@ rm -f "$OUT"
 cd "$ROOT"
 zip -9 -r "$OUT" \
     install.rdf chrome.manifest components pylib support skin test \
-    LICENSE README.md docs \
+    LICENSE README.md CHANGELOG.md docs \
     -x '*/__pycache__/*' '*.pyc' '*.pyo' '.git/*'
 
 cd "$TMP"
