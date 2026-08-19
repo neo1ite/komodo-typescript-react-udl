@@ -3,6 +3,8 @@
  *
  * Usage:
  *   node typescript-bridge.js /path/to/typescript.js /path/to/current.ts
+ *   node typescript-bridge.js /path/to/typescript.js /path/to/current.ts --syntax-only
+ *
  * Source text is read from stdin. JSON diagnostics are written to stdout.
  */
 "use strict";
@@ -12,6 +14,7 @@ var path = require("path");
 
 var tsPath = process.argv[2];
 var fileName = path.resolve(process.argv[3]);
+var syntaxOnly = process.argv.indexOf("--syntax-only") !== -1;
 var sourceChunks = [];
 
 function fatal(message) {
@@ -64,6 +67,39 @@ function diagnosticToJson(ts, diagnostic, currentFile) {
     return result;
 }
 
+function emitDiagnostics(ts, diagnostics, currentFile, configFile, mode) {
+    var output = [];
+    diagnostics.forEach(function (diagnostic) {
+        var item = diagnosticToJson(ts, diagnostic, currentFile);
+        if (item) {
+            output.push(item);
+        }
+    });
+
+    process.stdout.write(JSON.stringify({
+        typescriptVersion: ts.version || null,
+        configFile: configFile || null,
+        mode: mode,
+        diagnostics: output
+    }));
+}
+
+function syntaxOnlyDiagnostics(ts, sourceText) {
+    var options = {
+        target: ts.ScriptTarget.ES2018,
+        module: ts.ModuleKind.ESNext,
+        jsx: ts.JsxEmit.ReactJSX || ts.JsxEmit.React
+    };
+
+    var result = ts.transpileModule(sourceText, {
+        compilerOptions: options,
+        fileName: fileName,
+        reportDiagnostics: true
+    });
+
+    emitDiagnostics(ts, result.diagnostics || [], fileName, null, "syntax-only");
+}
+
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", function (chunk) {
     sourceChunks.push(chunk);
@@ -79,6 +115,16 @@ process.stdin.on("end", function () {
     }
 
     var sourceText = sourceChunks.join("");
+
+    if (syntaxOnly) {
+        try {
+            syntaxOnlyDiagnostics(ts, sourceText);
+        } catch (e) {
+            fatal("TypeScript syntax-only diagnostics failed: " + e.message);
+        }
+        return;
+    }
+
     var configFile = ts.findConfigFile(path.dirname(fileName), ts.sys.fileExists, "tsconfig.json");
     var options = {};
     var declarationRoots = [];
@@ -164,17 +210,5 @@ process.stdin.on("end", function () {
     }
 
     var diagnostics = configDiagnostics.concat(ts.getPreEmitDiagnostics(program));
-    var output = [];
-    diagnostics.forEach(function (diagnostic) {
-        var item = diagnosticToJson(ts, diagnostic, fileName);
-        if (item) {
-            output.push(item);
-        }
-    });
-
-    process.stdout.write(JSON.stringify({
-        typescriptVersion: ts.version || null,
-        configFile: configFile || null,
-        diagnostics: output
-    }));
+    emitDiagnostics(ts, diagnostics, fileName, configFile, "semantic");
 });
