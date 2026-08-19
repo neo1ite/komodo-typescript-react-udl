@@ -3,38 +3,31 @@
 /*
  * TypeScript LanguageService bridge for Komodo 9 CodeIntel.
  *
- * Usage:
+ * One-shot mode:
  *   node typescript-codeintel.js /path/to/typescript.js
  *
- * Request is JSON on stdin:
- *   {action, file, text, pos}
+ * Persistent mode used by Komodo 0.3.2+:
+ *   node typescript-codeintel.js /path/to/typescript.js --server
  *
- * Response is JSON on stdout.
+ * Requests are JSON objects with {action, file, text, pos}. In server mode
+ * requests and responses are one JSON object per line. The TypeScript runtime
+ * is loaded once and reused across implicit completion/calltip requests.
  */
 
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
 const tsPath = process.argv[2];
+const serverMode = process.argv.indexOf('--server') !== -1;
+
 if (!tsPath) {
     process.stdout.write(JSON.stringify({error: 'typescript.js path is required'}));
     process.exit(2);
 }
 
 const ts = require(tsPath);
-
-function readStdin() {
-    return new Promise((resolve, reject) => {
-        let data = '';
-        process.stdin.setEncoding('utf8');
-        process.stdin.on('data', chunk => { data += chunk; });
-        process.stdin.on('end', () => {
-            try { resolve(JSON.parse(data || '{}')); }
-            catch (e) { reject(e); }
-        });
-        process.stdin.on('error', reject);
-    });
-}
+const registry = ts.createDocumentRegistry();
 
 function isRemoteUri(fileName) {
     return /^[A-Za-z][A-Za-z0-9+.-]*:\/\/+/.test(String(fileName || ''));
@@ -45,12 +38,12 @@ function virtualRemoteFileName(uri) {
     if (!match) return '/__komodo_remote__/remote.ts';
 
     const scheme = match[1].replace(/[^A-Za-z0-9._-]/g, '_');
-    const parts = match[2].split('/').filter(Boolean).map(part =>
-        part.replace(/[^A-Za-z0-9._-]/g, '_')
-    );
+    const parts = match[2].split('/').filter(Boolean).map(function (part) {
+        return part.replace(/[^A-Za-z0-9._-]/g, '_');
+    });
 
     if (!parts.length) parts.push('remote.ts');
-    return path.posix.join('/__komodo_remote__', scheme, ...parts);
+    return path.posix.join.apply(path.posix, ['/__komodo_remote__', scheme].concat(parts));
 }
 
 function defaultOptions() {
@@ -77,10 +70,6 @@ function findConfig(fileName) {
 }
 
 function parseProject(fileName, remote) {
-    // Node cannot read Komodo SCP/SFTP URIs. For remote buffers we therefore
-    // build a single-file virtual project from the editor contents. This keeps
-    // completion/calltips/definitions within the current remote file working
-    // without pretending that the remote URI is a local filesystem path.
     if (remote) {
         return {fileNames: [fileName], options: defaultOptions()};
     }
@@ -121,39 +110,39 @@ function makeService(req) {
     }
 
     const host = {
-        getCompilationSettings: () => project.options,
-        getScriptFileNames: () => project.fileNames,
-        getScriptVersion: name => versions[resolveName(name)] || '0',
-        getScriptSnapshot: name => {
+        getCompilationSettings: function () { return project.options; },
+        getScriptFileNames: function () { return project.fileNames; },
+        getScriptVersion: function (name) { return versions[resolveName(name)] || '0'; },
+        getScriptSnapshot: function (name) {
             const resolved = resolveName(name);
             if (resolved === fileName) return ts.ScriptSnapshot.fromString(currentText);
             try { return ts.ScriptSnapshot.fromString(fs.readFileSync(resolved, 'utf8')); }
             catch (e) { return undefined; }
         },
-        getCurrentDirectory: () => currentDir,
-        getDefaultLibFileName: options => ts.getDefaultLibFilePath(options),
-        fileExists: name => isCurrent(name) || ts.sys.fileExists(name),
-        readFile: name => isCurrent(name) ? currentText : ts.sys.readFile(name),
+        getCurrentDirectory: function () { return currentDir; },
+        getDefaultLibFileName: function (options) { return ts.getDefaultLibFilePath(options); },
+        fileExists: function (name) { return isCurrent(name) || ts.sys.fileExists(name); },
+        readFile: function (name) { return isCurrent(name) ? currentText : ts.sys.readFile(name); },
         readDirectory: ts.sys.readDirectory,
-        directoryExists: name => {
+        directoryExists: function (name) {
             const resolved = resolveName(name);
             if (remote && resolved === currentDir) return true;
             return ts.sys.directoryExists ? ts.sys.directoryExists(name) : fs.existsSync(name);
         },
         getDirectories: ts.sys.getDirectories,
-        realpath: name => {
+        realpath: function (name) {
             if (isCurrent(name)) return fileName;
             return ts.sys.realpath ? ts.sys.realpath(name) : resolveName(name);
         },
-        useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames,
-        getNewLine: () => ts.sys.newLine
+        useCaseSensitiveFileNames: function () { return ts.sys.useCaseSensitiveFileNames; },
+        getNewLine: function () { return ts.sys.newLine; }
     };
 
     return {
-        service: ts.createLanguageService(host, ts.createDocumentRegistry()),
-        fileName,
-        originalFile,
-        remote
+        service: ts.createLanguageService(host, registry),
+        fileName: fileName,
+        originalFile: originalFile,
+        remote: remote
     };
 }
 
@@ -164,30 +153,34 @@ function completion(service, fileName, pos) {
     });
     if (!info) return {completions: []};
     return {
-        completions: info.entries.map(entry => ({
-            name: entry.name,
-            kind: entry.kind || 'variable',
-            sortText: entry.sortText || entry.name
-        }))
+        completions: info.entries.map(function (entry) {
+            return {
+                name: entry.name,
+                kind: entry.kind || 'variable',
+                sortText: entry.sortText || entry.name
+            };
+        })
     };
 }
 
 function signature(service, fileName, pos) {
     const help = service.getSignatureHelpItems(fileName, pos, undefined);
     if (!help || !help.items || !help.items.length) return {calltips: []};
-    const calltips = help.items.map(item => {
-        const params = item.parameters.map(p => displayParts(p.displayParts));
+    const calltips = help.items.map(function (item) {
+        const params = item.parameters.map(function (p) {
+            return displayParts(p.displayParts);
+        });
         return displayParts(item.prefixDisplayParts) +
             params.join(displayParts(item.separatorDisplayParts)) +
             displayParts(item.suffixDisplayParts);
     });
-    return {calltips};
+    return {calltips: calltips};
 }
 
 function definition(ctx, pos) {
     const defs = ctx.service.getDefinitionAtPosition(ctx.fileName, pos) || [];
     return {
-        definitions: defs.map(def => {
+        definitions: defs.map(function (def) {
             let line = 1;
             try {
                 const program = ctx.service.getProgram();
@@ -195,10 +188,6 @@ function definition(ctx, pos) {
                 if (sf) line = sf.getLineAndCharacterOfPosition(def.textSpan.start).line + 1;
             } catch (e) {}
 
-            // TypeScript sees an SCP/SFTP buffer under a synthetic local path.
-            // Translate definitions in the current virtual file back to the
-            // original Komodo URI so Go to Definition reuses the remote buffer
-            // instead of prompting to create '/home/.../scp:/...'.
             const definitionFile = ctx.remote && path.resolve(def.fileName) === ctx.fileName
                 ? ctx.originalFile
                 : def.fileName;
@@ -207,24 +196,65 @@ function definition(ctx, pos) {
                 name: def.name || '',
                 kind: def.kind || 'variable',
                 file: definitionFile,
-                line
+                line: line
             };
         })
     };
 }
 
-readStdin().then(req => {
+function handleRequest(req) {
     const ctx = makeService(req);
     const pos = Math.max(0, Number(req.pos) || 0);
-    let result;
+
     switch (req.action) {
-        case 'completion': result = completion(ctx.service, ctx.fileName, pos); break;
-        case 'signature': result = signature(ctx.service, ctx.fileName, pos); break;
-        case 'definition': result = definition(ctx, pos); break;
-        default: result = {error: 'unknown action: ' + req.action};
+        case 'completion': return completion(ctx.service, ctx.fileName, pos);
+        case 'signature': return signature(ctx.service, ctx.fileName, pos);
+        case 'definition': return definition(ctx, pos);
+        default: return {error: 'unknown action: ' + req.action};
     }
-    process.stdout.write(JSON.stringify(result));
-}).catch(err => {
-    process.stdout.write(JSON.stringify({error: String(err && err.stack || err)}));
-    process.exitCode = 1;
-});
+}
+
+function safeHandle(req) {
+    try {
+        return handleRequest(req);
+    } catch (err) {
+        return {error: String(err && err.stack || err)};
+    }
+}
+
+function runServer() {
+    const rl = readline.createInterface({input: process.stdin});
+    rl.on('line', function (line) {
+        if (!line) return;
+        let req;
+        try {
+            req = JSON.parse(line);
+        } catch (err) {
+            process.stdout.write(JSON.stringify({error: String(err)}) + '\n');
+            return;
+        }
+        process.stdout.write(JSON.stringify(safeHandle(req)) + '\n');
+    });
+}
+
+function runOneShot() {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', function (chunk) { data += chunk; });
+    process.stdin.on('end', function () {
+        let req;
+        try {
+            req = JSON.parse(data || '{}');
+        } catch (err) {
+            process.stdout.write(JSON.stringify({error: String(err)}));
+            process.exitCode = 1;
+            return;
+        }
+        const result = safeHandle(req);
+        process.stdout.write(JSON.stringify(result));
+        if (result.error) process.exitCode = 1;
+    });
+}
+
+if (serverMode) runServer();
+else runOneShot();
