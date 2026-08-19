@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented here.
 
+## 0.3.2 — unreleased
+
+### Added
+
+- syntax-only compiler diagnostics for SCP/SFTP buffers so remote imports and names are not falsely reported as missing when the local Node process cannot see remote `node_modules`;
+- persistent line-oriented TypeScript LanguageService bridge for completion/calltip requests;
+- build-time smoke tests for completion, signature help, Go to Definition, SCP URI translation and remote syntax-only linting.
+
+### Changed
+
+- implicit completion and calltip trigger integration now follows Komodo CodeIntel trigger-position semantics: completion replacement starts at the identifier prefix while LanguageService queries use the actual cursor position;
+- TypeScript LangIntel now uses Komodo's `ParenStyleCalltipIntelMixin` for calltip argument tracking;
+- remote CodeIntel always uses the bundled/global TypeScript runtime rather than attempting to interpret an SCP/SFTP URI as a local project path;
+- the persistent bridge loads TypeScript once, but creates a fresh document registry per request to avoid stale editor buffers.
+
+### Validation target
+
+Before tagging 0.3.2, verify in Komodo IDE 9.3.2 on both `.ts` and `.tsx`:
+
+- `obj.` shows member completion;
+- `sum(` shows a signature calltip;
+- Go to Definition still works in local and SCP/SFTP buffers;
+- SCP/SFTP linting reports syntax errors but no false `Cannot find module` / unresolved-name diagnostics.
+
+### Deferred to 0.4.0
+
+- remote-project bridge for SCP/SFTP `tsconfig.json`, imported files, remote `node_modules`, type declarations and cross-file semantic navigation.
+
 ## 0.3.1 — 2026-08-19
 
 ### Added
@@ -30,11 +58,6 @@ All notable changes to this project are documented here.
 - SCP/SFTP linting still performs semantic diagnostics without access to remote dependencies, so messages such as `Cannot find module 'react'` can be false positives;
 - SCP/SFTP support is currently single-buffer only: remote `tsconfig.json`, sibling source files and `node_modules` are not available to the local LanguageService;
 - cross-file semantic navigation for remote projects is therefore not yet supported.
-
-### Planned
-
-- **0.3.2:** syntax-only linting for SCP/SFTP buffers and completion/calltip UI integration fixes;
-- **0.4.0:** remote-project bridge for `tsconfig.json`, imported files, remote `node_modules`, cross-file diagnostics/completion and Go to Definition.
 
 ## 0.3.0
 
