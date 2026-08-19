@@ -17,20 +17,35 @@ The extension backports practical TypeScript support to the old Komodo 9 languag
 - nearest `tsconfig.json` discovery for local projects;
 - diagnostics for the current unsaved editor buffer;
 - TypeScript LanguageService-backed semantic bridge;
-- completion, signature-help and Go to Definition requests;
+- completion, signature help/calltips and Go to Definition;
 - current-buffer semantic support for SCP/SFTP documents;
 - Komodo IDE refactoring registration for TypeScript and TSX using Komodo's JavaScript refactoring engine as a compatibility layer.
 
 The internal TSX language name is deliberately `ReactTypeScript` without a space. Komodo 9's old chrome/XPCOM manifest parser treats whitespace inside contract identifiers as a separator.
 
-## Current development version: 0.3.2
+## Current release: 0.3.2
 
-0.3.2 focuses on the two gaps left by 0.3.1:
+0.3.2 closes the two main gaps left by 0.3.1:
 
 - SCP/SFTP linting now uses **syntax-only diagnostics**, avoiding false `Cannot find module` and unresolved-name errors when remote dependencies are invisible to the local Node process;
-- completion and calltips use a persistent TypeScript LanguageService bridge plus corrected Komodo trigger positions so implicit editor requests no longer pay the cost of starting Node and loading TypeScript for every keystroke.
+- completion and calltips use a persistent TypeScript LanguageService bridge plus corrected Komodo trigger positions.
 
-`build.sh` runs bridge smoke tests before creating the XPI. These tests validate backend member completion, signature help, Go to Definition, SCP URI translation and syntax-only remote linting. Live Komodo UI verification is still required before tagging 0.3.2.
+`build.sh` runs bridge smoke tests before creating the XPI. Live validation in Komodo IDE 9.3.2 confirmed member completion, signature calltips and Go to Definition in an SCP-backed TypeScript buffer.
+
+### Automatic completion and calltips
+
+The extension respects Komodo's existing CodeIntel preferences and does **not** force automatic popups on.
+
+If automatic completion is disabled, semantic completion and calltips can still be invoked manually with `Ctrl+J`.
+
+For automatic completion/calltip triggering, enable the corresponding settings under Komodo's Code Intelligence preferences. The relevant preferences are:
+
+```text
+codeintel_completion_triggering_enabled
+codeintel_calltip_triggering_enabled
+```
+
+This distinction is important when upgrading: a working TypeScript CodeIntel backend can appear inactive if Komodo's automatic trigger preference was previously disabled.
 
 ## Extension identity
 
@@ -136,12 +151,6 @@ Komodo IDE 9 ships refactoring as the separate system extension `refactoring@act
 The adapters reuse Komodo's JavaScript refactoring engine for JavaScript-compatible TypeScript/TSX syntax. Semantic CodeIntel remains TypeScript-LanguageService-backed.
 
 ## Roadmap
-
-### 0.3.2
-
-- syntax-only SCP/SFTP diagnostics;
-- reliable completion and calltip integration in the Komodo UI;
-- preserve current-buffer SCP/SFTP Go to Definition.
 
 ### 0.4.0
 
