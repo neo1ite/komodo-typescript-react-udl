@@ -27,7 +27,6 @@ if (!tsPath) {
 }
 
 const ts = require(tsPath);
-const registry = ts.createDocumentRegistry();
 
 function isRemoteUri(fileName) {
     return /^[A-Za-z][A-Za-z0-9+.-]*:\/\/+/.test(String(fileName || ''));
@@ -137,6 +136,10 @@ function makeService(req) {
         useCaseSensitiveFileNames: function () { return ts.sys.useCaseSensitiveFileNames; },
         getNewLine: function () { return ts.sys.newLine; }
     };
+
+    // A new registry per request avoids stale SourceFile reuse while the
+    // persistent process still saves the expensive TypeScript require().
+    const registry = ts.createDocumentRegistry();
 
     return {
         service: ts.createLanguageService(host, registry),
