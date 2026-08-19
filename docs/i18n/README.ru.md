@@ -4,53 +4,57 @@
 
 Расширение добавляет поддержку TypeScript и TSX в **Komodo IDE / Komodo Edit 9.3.x**.
 
-Оно переносит практически полезную поддержку TypeScript на старую архитектуру языковых сервисов Komodo 9 и не требует правки файлов самой IDE.
+Оно переносит практически полезную поддержку TypeScript на старую архитектуру языковых сервисов Komodo 9 без модификации самой IDE.
 
 ## Возможности
 
 - язык `TypeScript` для `.ts`, `.mts` и `.cts`;
 - язык `ReactTypeScript` для `.tsx`;
-- подсветка на базе стабильного lexer `SCLEX_CPP` из Komodo;
+- подсветка на базе стабильного lexer `SCLEX_CPP`;
 - folding, комментарии, отступы по скобкам и ключевые слова TypeScript;
 - отдельные иконки `TS` и `TSX`;
 - диагностика компилятора для TypeScript и TSX;
 - поиск ближайшего `tsconfig.json` для локальных проектов;
-- проверка текущего несохранённого содержимого редактора;
-- семантический мост к TypeScript LanguageService;
-- **Go to Definition** для символов текущего буфера, включая SCP/SFTP;
-- регистрация refactoring для TypeScript и TSX через совместимый слой на базе JavaScript refactoring engine Komodo.
+- диагностика текущего несохранённого буфера;
+- семантический CodeIntel на базе TypeScript LanguageService;
+- completion, signature help и Go to Definition;
+- поддержка текущего файла при работе по SCP/SFTP;
+- регистрация refactoring-сервисов TypeScript/TSX через совместимый слой штатного JavaScript refactoring engine Komodo IDE.
 
-Мост LanguageService также реализует запросы completion и signature help, но в **0.3.1** эти результаты пока не выводятся надёжно через UI CodeIntel Komodo. Это известное ограничение, которое планируется исправить в 0.3.2.
+Внутреннее имя TSX-языка намеренно записано как `ReactTypeScript` без пробела: старый parser chrome/XPCOM manifest Komodo 9 воспринимает пробел внутри contract ID как разделитель.
 
-Внутреннее имя TSX-языка намеренно записано как `ReactTypeScript` без пробела: старый parser chrome/XPCOM manifest в Komodo 9 воспринимает пробел внутри contract ID как разделитель.
+## Текущая разрабатываемая версия: 0.3.2
+
+0.3.2 закрывает два основных ограничения 0.3.1:
+
+- linter для SCP/SFTP переключён на **только синтаксическую диагностику**, чтобы не показывать ложные `Cannot find module` и ошибки неизвестных имён, когда локальный Node не видит удалённые зависимости;
+- completion и calltips переведены на постоянный процесс TypeScript LanguageService и исправленную семантику trigger-позиций Komodo, чтобы не запускать Node и не загружать TypeScript заново на каждый символ.
+
+`build.sh` теперь запускает smoke-тесты до создания XPI. Они проверяют backend completion, signature help, Go to Definition, обратное преобразование SCP URI и syntax-only linting. Перед тегированием 0.3.2 остаётся проверить отображение completion/calltips непосредственно в Komodo 9.3.2.
 
 ## Идентификатор расширения
-
-Текущий ID:
 
 ```text
 typescript_language@www.neolite.org
 ```
 
-Промежуточные сборки до 0.3.0 использовали GUID. Komodo считает новый ID другим расширением, поэтому старую GUID-версию нужно удалить через Add-ons Manager перед установкой текущей. Не следует удалять каталог установленного расширения руками: Mozilla add-on registry может сохранить устаревшие записи.
+Промежуточные сборки до 0.3.0 использовали GUID. Старую GUID-версию нужно удалять через Add-ons Manager, а не удалением каталога руками, иначе Mozilla registry может сохранить устаревшие записи.
 
-## Поиск TypeScript-компилятора
+## TypeScript runtime
 
-Начиная с версии 0.3.1 release-XPI является самодостаточным для семантических сервисов: `build.sh` включает в пакет закреплённую версию TypeScript compiler/LanguageService. При этом для локального проекта его собственный компилятор имеет приоритет.
-
-Порядок поиска во время работы:
+Release-XPI самодостаточен для семантических сервисов. Порядок выбора TypeScript:
 
 1. ближайший project-local `node_modules/typescript/lib/typescript.js` для локального файла;
 2. встроенный в XPI `vendor/typescript/lib/typescript.js`;
-3. глобальный `tsc` как дополнительный fallback.
+3. глобальный `tsc` как fallback.
 
-Встроенный fallback — **TypeScript 5.0.4**, чтобы расширение оставалось совместимым с Node.js 12.20+, который всё ещё встречается на системах со старым Komodo. Для локальных проектов локальная зависимость TypeScript всё равно предпочтительнее, потому что семантика редактора тогда точно соответствует сборке проекта.
+Встроенный runtime — **TypeScript 5.0.4**, совместимый с Node.js 12.20+.
 
-Node.js остаётся необходимым для CodeIntel на базе LanguageService и диагностики компилятора. Для одной только подсветки Node.js не требуется.
+Node.js нужен для LanguageService CodeIntel и compiler diagnostics; для одной подсветки он не требуется.
 
 ## Установка
 
-Установите XPI через Add-ons Manager Komodo и перезапустите IDE.
+Установите XPI через Add-ons Manager и перезапустите Komodo.
 
 После обновления промежуточной сборки при полностью закрытом Komodo удалите startup cache:
 
@@ -60,37 +64,25 @@ rm -rf ~/.komodoide/9.3/XRE/startupCache
 
 ## Сборка
 
-`build.sh` создаёт XPI напрямую, оставляет chrome-ресурсы незапакованными в JAR и добавляет fallback TypeScript LanguageService:
-
 ```bash
 ./build.sh
 ```
 
-Скрипт использует по порядку:
+Скрипт:
 
-- явно заданный `TYPESCRIPT_ROOT`;
-- `node_modules/typescript` в каталоге исходников расширения;
-- глобальный TypeScript из npm;
-- если ничего не найдено, npm загружает закреплённую версию TypeScript во временный каталог сборки.
+- находит или загружает закреплённый TypeScript 5.0.4;
+- запускает `test/smoke-codeintel.js`;
+- останавливает сборку, если smoke-тесты completion/signature/definition или remote syntax-only linting не прошли;
+- создаёт `komodo-typescript-9.3.2-<version>.xpi` рядом с исходниками.
 
-Загруженная build-time копия не коммитится в репозиторий. В готовый XPI попадает только runtime-каталог `vendor/typescript`.
-
-По умолчанию XPI создаётся рядом с каталогом исходников; путь назначения можно передать аргументом.
-
-## Ассоциации языков
+## Ассоциации
 
 ```text
 .ts, .mts, .cts  -> TypeScript
 .tsx             -> ReactTypeScript
 ```
 
-`ReactTypeScript` зарегистрирован как отдельный язык, но использует общий TypeScript lexer. Это позволяет независимо развивать TSX-поддержку без дублирования основного lexer.
-
 ## Архитектура CodeIntel
-
-Старый JavaScript CILE parser Komodo 9 появился раньше современного TypeScript/TSX, поэтому расширение не пытается разбирать TypeScript как старый JavaScript.
-
-Используется схема:
 
 ```text
 Komodo CodeIntel UI
@@ -99,70 +91,67 @@ Komodo CodeIntel UI
 pylib/codeintel_typescript.py
         |
         v
-support/typescript-codeintel.js
+постоянный support/typescript-codeintel.js
         |
         v
 TypeScript LanguageService
 ```
 
-Мост реализует completion, signature help и definition-запросы. В 0.3.1 **Go to Definition подтверждённо доходит до UI Komodo**, а completion и calltips ещё требуют дополнительного исправления интеграции с CodeIntel Komodo.
+Постоянный Node-процесс загружает TypeScript один раз и принимает построчные JSON-запросы completion, signature help и definition. При этом для каждого запроса создаётся новый TypeScript document registry, чтобы несохранённый буфер не кэшировался в устаревшем состоянии.
 
-CodeIntel bootstrap явно загружает `langinfo_typescript.py` в out-of-process LangInfo database Komodo и регистрирует TypeScript aliases в `styles.StateMap`. Это необходимо из-за порядка инициализации CodeIntel в Komodo 9.
+Для completion теперь разделены две позиции: `Trigger.pos` указывает Scintilla начало заменяемого префикса, а `query_pos` — реальную позицию курсора для TypeScript LanguageService.
 
-## Файлы по SCP/SFTP
+Calltips используют штатный `ParenStyleCalltipIntelMixin` Komodo.
 
-Komodo передаёт удалённые документы в CodeIntel в виде URI, например `scp://host/path/file.ts`. Такой URI нельзя передавать в Node `path.resolve()`: иначе он превращается в ложный локальный путь вида `/home/user/scp:/host/path/file.ts`.
+## SCP/SFTP
 
-В версии 0.3.1 текущий SCP/SFTP-буфер внутри TypeScript LanguageService представлен синтетическим именем файла, а определения внутри этого же файла преобразуются обратно в исходный remote URI Komodo. **Go to Definition внутри текущего удалённого файла подтверждённо работает без предложения создать фиктивный локальный файл.**
+Удалённый документ Komodo передаёт как URI вида `scp://host/path/file.ts`. Внутри LanguageService текущий remote-buffer получает синтетическое имя файла, а определение символа внутри этого же буфера преобразуется обратно в исходный URI Komodo.
 
-Расширение пока не зеркалирует удалённый TypeScript-проект на локальную машину. Поэтому локальный Node LanguageService не может читать удалённые `tsconfig.json`, соседние исходники и `node_modules`.
+В 0.3.2:
 
-В 0.3.1 это приводит к двум видимым ограничениям:
+- **SCP/SFTP:** только синтаксическая диагностика;
+- **локальные файлы:** полная project-aware TypeScript diagnostics при наличии файлов проекта.
 
-- completion/calltips пока не выводятся надёжно в Komodo;
-- linter может показывать ложные семантические ошибки вроде `Cannot find module 'react'`, потому что удалённые зависимости недоступны локально.
+Это намеренно убирает semantic false positives, которые невозможно проверить без удалённых `tsconfig.json`, соседних файлов и `node_modules`.
 
-## Диагностика компилятора
-
-`components/koTypeScriptLinter.py` использует отдельный Node bridge для проверки текущего содержимого редактора. В 0.3.1 явно зарегистрированы linter contracts и для `TypeScript`, и для `ReactTypeScript`; используется тот же порядок поиска компилятора, что и в CodeIntel.
-
-Для локальных проектов linter может использовать конфигурацию и зависимости проекта. Для SCP/SFTP-файлов 0.3.1 пока выполняет семантическую диагностику одного виртуального буфера, поэтому ошибки unresolved module/name могут быть ложными.
+CodeIntel для SCP/SFTP пока остаётся **single-buffer**. Локальный Node всё ещё не может читать remote imports и type declarations.
 
 ## Refactoring
 
-Komodo IDE 9 поставляет refactoring отдельным системным расширением `refactoring@activestate.com`. TypeScript-extension регистрирует два IDE contract:
+Расширение регистрирует:
 
 ```text
 @activestate.com/koRefactoringLanguageService;1?language=TypeScript
 @activestate.com/koRefactoringLanguageService;1?language=ReactTypeScript
 ```
 
-Адаптеры переиспользуют JavaScript refactoring engine Komodo для JavaScript-совместимого TypeScript/TSX-кода. Это включает штатный refactoring UI и устраняет предупреждение `Can't find a refactoring service`. Семантический CodeIntel по-прежнему работает через TypeScript LanguageService; слой refactoring намеренно отделён.
+Адаптеры используют JavaScript refactoring engine Komodo для совместимого TypeScript/TSX-синтаксиса. Семантический CodeIntel остаётся на TypeScript LanguageService.
 
-## План развития
+## Roadmap
 
 ### 0.3.2
 
-- переключить SCP/SFTP-linter на **syntax-only diagnostics**, чтобы не показывать ложные `Cannot find module` и unresolved-name ошибки при отсутствии удалённых зависимостей;
-- довести интеграцию completion и calltips/signature help с UI CodeIntel Komodo.
+- syntax-only диагностика SCP/SFTP;
+- надёжное отображение completion и calltips в UI Komodo;
+- сохранение работающего Go to Definition для текущего remote-buffer.
 
 ### 0.4.0
 
-Планируется полноценный remote-project bridge для SCP/SFTP:
+Полноценный remote-project bridge:
 
 - удалённый `tsconfig.json`;
-- соседние/импортируемые исходники;
-- удалённые `node_modules` и type declarations;
-- межфайловые completion, diagnostics и Go to Definition.
+- imported/sibling `.ts`/`.tsx`;
+- удалённые `node_modules` и `.d.ts`;
+- cross-file completion, diagnostics и Go to Definition.
 
 ## Структура проекта
 
 - `components/` — XPCOM-компоненты языков, linter и refactoring;
-- `pylib/` — LangInfo и интеграция CodeIntel;
-- `support/` — Node.js bridges для диагностики и семантического CodeIntel;
-- `skin/` — иконки `TS` / `TSX` и оформление языков;
-- `vendor/` — встроенный TypeScript runtime внутри собранного XPI (создаётся `build.sh`, в git не хранится);
-- `test/` — тесты и fixtures.
+- `pylib/` — LangInfo и CodeIntel;
+- `support/` — Node.js bridges;
+- `skin/` — иконки `TS` / `TSX`;
+- `vendor/` — TypeScript runtime внутри собранного XPI;
+- `test/` — тесты и build-time smoke checks.
 
 ## Совместимость
 
@@ -170,8 +159,6 @@ Komodo IDE 9 поставляет refactoring отдельным системн�
 
 - Komodo IDE 9.3.2 build 88191;
 - Linux x86_64.
-
-Подсветка ориентирована также на Komodo Edit 9.3.x. Refactoring adapters полезны только при наличии IDE refactoring extension.
 
 ## История изменений
 
