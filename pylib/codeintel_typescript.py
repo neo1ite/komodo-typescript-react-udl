@@ -3,18 +3,21 @@
 
 Komodo 9's JavaScript CILE parser predates modern TypeScript. This module
 keeps the CodeIntel UI/protocol but delegates semantic completion, calltips
-and definitions to TypeScript LanguageService through Node.js.
+and definitions to TypeScript LanguageService through a persistent Node.js
+bridge.
 
 Resolution order for the TypeScript compiler library:
-1. project-local node_modules/typescript;
+1. project-local node_modules/typescript for local files;
 2. compiler bundled into the XPI by build.sh;
 3. a global tsc/npm installation.
 """
 
+import atexit
 import json
 import logging
 import os
 import subprocess
+import threading
 
 import SilverCity
 from SilverCity.Lexer import Lexer
@@ -22,7 +25,7 @@ from SilverCity import ScintillaConstants
 
 from codeintel2.buffer import Buffer
 from codeintel2.common import *
-from codeintel2.langintel import LangIntel
+from codeintel2.langintel import LangIntel, ParenStyleCalltipIntelMixin
 
 try:
     import which
@@ -75,6 +78,12 @@ def _extension_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _is_remote_path(path):
+    if not path:
+        return False
+    return "://" in path and not path.lower().startswith("file://")
+
+
 def _walk_up(start):
     current = os.path.abspath(start)
     while True:
@@ -107,21 +116,20 @@ def _bundled_typescript_js():
 
 
 def _find_typescript_js(filename):
-    # Prefer the project's compiler so editor semantics match its build.
-    start = os.path.dirname(os.path.abspath(filename))
-    for directory in _walk_up(start):
-        candidate = os.path.join(
-            directory, "node_modules", "typescript", "lib", "typescript.js"
-        )
-        if os.path.isfile(candidate):
-            return candidate
+    # Only a local document can have a directly accessible project compiler.
+    if not _is_remote_path(filename):
+        start = os.path.dirname(os.path.abspath(filename))
+        for directory in _walk_up(start):
+            candidate = os.path.join(
+                directory, "node_modules", "typescript", "lib", "typescript.js"
+            )
+            if os.path.isfile(candidate):
+                return candidate
 
-    # 0.3.1+ builds carry a pinned fallback LanguageService in the XPI.
     bundled = _bundled_typescript_js()
     if bundled:
         return bundled
 
-    # Compatibility fallback for development/unbundled installs.
     tsc = _which("tsc")
     if not tsc:
         return None
@@ -157,13 +165,7 @@ def _buffer_text(buf):
 
 
 def _safe_cwd(path):
-    """Return an existing directory for subprocess cwd, or None.
-
-    Komodo can expose synthetic/stale document paths (for example through
-    remote mappings or restored sessions). Passing their non-existent parent
-    directory to subprocess.Popen raises ENOENT before the Node bridge starts.
-    """
-    if not path:
+    if not path or _is_remote_path(path):
         return None
     current = os.path.dirname(os.path.abspath(path))
     while current and current != os.path.dirname(current):
@@ -173,6 +175,110 @@ def _safe_cwd(path):
     if current and os.path.isdir(current):
         return current
     return None
+
+
+class _BridgeClient(object):
+    """Persistent line-oriented Node bridge.
+
+    Spawning Node and loading the multi-megabyte TypeScript runtime on every
+    implicit completion is too slow for Komodo's autocomplete UI. Keeping one
+    bridge process alive makes completion/calltip requests fast enough for
+    implicit editor triggers.
+    """
+
+    def __init__(self, node, bridge, typescript_js):
+        self.node = node
+        self.bridge = bridge
+        self.typescript_js = typescript_js
+        self._lock = threading.RLock()
+        self._proc = None
+
+    def _start(self):
+        self.close()
+        self._proc = subprocess.Popen(
+            [self.node, self.bridge, self.typescript_js, "--server"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=_safe_cwd(self.bridge),
+            env=os.environ.copy(),
+            bufsize=1,
+        )
+
+    def close(self):
+        proc = self._proc
+        self._proc = None
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+        except Exception:
+            pass
+
+    def request(self, payload):
+        with self._lock:
+            for attempt in (0, 1):
+                if self._proc is None or self._proc.poll() is not None:
+                    self._start()
+
+                wire = json.dumps(payload, ensure_ascii=False)
+                if isinstance(wire, unicode):
+                    wire = wire.encode("utf-8")
+
+                try:
+                    self._proc.stdin.write(wire + "\n")
+                    self._proc.stdin.flush()
+                    line = self._proc.stdout.readline()
+                except Exception:
+                    self.close()
+                    if attempt == 0:
+                        continue
+                    raise
+
+                if line:
+                    result = json.loads(line.decode("utf-8"))
+                    if result.get("error"):
+                        raise RuntimeError(result["error"])
+                    return result
+
+                error = ""
+                try:
+                    if self._proc.poll() is not None:
+                        error = self._proc.stderr.read()
+                except Exception:
+                    pass
+                self.close()
+                if attempt == 0:
+                    continue
+                raise RuntimeError(error or "TypeScript CodeIntel bridge returned no data")
+
+        raise RuntimeError("TypeScript CodeIntel bridge request failed")
+
+
+_bridge_clients = {}
+_bridge_clients_lock = threading.RLock()
+
+
+def _close_bridge_clients():
+    for client in _bridge_clients.values():
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+atexit.register(_close_bridge_clients)
+
+
+def _bridge_client(node, bridge, typescript_js):
+    key = (node, bridge, typescript_js)
+    with _bridge_clients_lock:
+        client = _bridge_clients.get(key)
+        if client is None:
+            client = _BridgeClient(node, bridge, typescript_js)
+            _bridge_clients[key] = client
+        return client
 
 
 def _call_bridge(buf, action, pos):
@@ -190,39 +296,16 @@ def _call_bridge(buf, action, pos):
     if not os.path.isfile(bridge):
         raise RuntimeError("TypeScript CodeIntel bridge is missing: %s" % bridge)
 
-    payload = json.dumps({
+    payload = {
         "action": action,
         "file": buf.path,
         "text": _buffer_text(buf),
         "pos": int(pos),
-    })
-
-    proc = subprocess.Popen(
-        [node, bridge, typescript_js],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=_safe_cwd(buf.path),
-        env=os.environ.copy(),
-    )
-    stdout, stderr = proc.communicate(payload.encode("utf-8"))
-    if not stdout:
-        raise RuntimeError(stderr or "TypeScript CodeIntel bridge returned no data")
-
-    result = json.loads(stdout.decode("utf-8"))
-    if result.get("error"):
-        raise RuntimeError(result["error"])
-    return result
+    }
+    return _bridge_client(node, bridge, typescript_js).request(payload)
 
 
 def _ensure_langinfo(mgr):
-    """Load extension LangInfo before registering CodeIntel lexers.
-
-    Komodo's out-of-process CodeIntel manager receives extension pylib paths
-    after its default LangInfo database has already been created. Therefore an
-    extension's langinfo_*.py can be absent from mgr.lidb even though its
-    codeintel_*.py has been discovered. Load this pylib explicitly.
-    """
     missing = []
     for lang in ("TypeScript", "ReactTypeScript"):
         try:
@@ -267,7 +350,7 @@ class _TypeScriptBuffer(Buffer):
 
     def defn_trg_from_pos(self, pos, lang=None):
         return Trigger(lang or self.lang, TRG_FORM_DEFN,
-                       "definition", pos, False)
+                       "definition", pos, False, query_pos=pos)
 
     def defns_from_trg(self, trg, timeout=None, ctlr=None):
         self.async_eval_at_trg(trg, ctlr)
@@ -286,7 +369,10 @@ class ReactTypeScriptBuffer(_TypeScriptBuffer):
     lang = "ReactTypeScript"
 
 
-class _TypeScriptLangIntel(LangIntel):
+class _TypeScriptLangIntel(LangIntel, ParenStyleCalltipIntelMixin):
+    trg_chars = tuple(".(")
+    calltip_trg_chars = tuple("(")
+
     def trg_from_pos(self, buf, pos, implicit=True, DEBUG=False, ac=None):
         if pos < 1:
             return None
@@ -295,10 +381,15 @@ class _TypeScriptLangIntel(LangIntel):
         ch = accessor.char_at_pos(pos - 1)
 
         if ch == ".":
-            return Trigger(self.lang, TRG_FORM_CPLN, "members", pos, implicit)
+            return Trigger(
+                self.lang, TRG_FORM_CPLN, "members", pos, implicit,
+                query_pos=pos,
+            )
         if ch == "(":
-            return Trigger(self.lang, TRG_FORM_CALLTIP,
-                           "signature", pos, implicit)
+            return Trigger(
+                self.lang, TRG_FORM_CALLTIP, "signature", pos, implicit,
+                query_pos=pos,
+            )
 
         if ch.isalnum() or ch in "_$":
             start = pos - 1
@@ -308,15 +399,36 @@ class _TypeScriptLangIntel(LangIntel):
                     break
                 start -= 1
             if pos - start >= 2:
-                return Trigger(self.lang, TRG_FORM_CPLN,
-                               "names", pos, implicit)
+                # trg.pos is the start of the word so Scintilla knows which
+                # prefix to replace; query_pos is the actual TypeScript cursor.
+                return Trigger(
+                    self.lang, TRG_FORM_CPLN, "names", start, implicit,
+                    query_pos=pos,
+                )
         return None
 
     def preceding_trg_from_pos(self, buf, pos, curr_pos,
                                preceding_trg_terminators=None, DEBUG=False):
         if curr_pos < 0:
             return None
-        return Trigger(self.lang, TRG_FORM_CPLN, "names", curr_pos, False)
+
+        direct = self.trg_from_pos(buf, curr_pos, implicit=False)
+        if direct is not None:
+            return direct
+
+        accessor = buf.accessor
+        start = curr_pos
+        while start > 0:
+            prev = accessor.char_at_pos(start - 1)
+            if not (prev.isalnum() or prev in "_$"):
+                break
+            start -= 1
+        if start < curr_pos:
+            return Trigger(
+                self.lang, TRG_FORM_CPLN, "names", start, False,
+                query_pos=curr_pos,
+            )
+        return None
 
     def async_eval_at_trg(self, buf, trg, ctlr):
         if _xpcom_:
@@ -325,8 +437,11 @@ class _TypeScriptLangIntel(LangIntel):
 
         ctlr.start(buf, trg)
         try:
+            query_pos = trg.extra.get("query_pos", trg.pos)
+
             if trg.form == TRG_FORM_CPLN:
-                result = _call_bridge(buf, "completion", trg.pos)
+                ctlr.set_desc("TypeScript LanguageService completion")
+                result = _call_bridge(buf, "completion", query_pos)
                 cplns = []
                 seen = set()
                 for item in result.get("completions", []):
@@ -336,18 +451,21 @@ class _TypeScriptLangIntel(LangIntel):
                     seen.add(name)
                     kind = _KIND_MAP.get(item.get("kind"), "variable")
                     cplns.append((kind, name))
+                cplns.sort(key=lambda item: item[1].lower())
                 ctlr.set_cplns(cplns)
                 ctlr.done("success")
                 return
 
             if trg.form == TRG_FORM_CALLTIP:
-                result = _call_bridge(buf, "signature", trg.pos)
+                ctlr.set_desc("TypeScript LanguageService signature help")
+                result = _call_bridge(buf, "signature", query_pos)
                 ctlr.set_calltips(result.get("calltips", []))
                 ctlr.done("success")
                 return
 
             if trg.form == TRG_FORM_DEFN:
-                result = _call_bridge(buf, "definition", trg.pos)
+                ctlr.set_desc("TypeScript LanguageService definition")
+                result = _call_bridge(buf, "definition", query_pos)
                 defns = []
                 for item in result.get("definitions", []):
                     path = item.get("file")
