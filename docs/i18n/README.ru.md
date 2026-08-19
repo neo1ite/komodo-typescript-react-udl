@@ -17,20 +17,35 @@
 - поиск ближайшего `tsconfig.json` для локальных проектов;
 - диагностика текущего несохранённого буфера;
 - семантический CodeIntel на базе TypeScript LanguageService;
-- completion, signature help и Go to Definition;
+- completion, signature help/calltips и Go to Definition;
 - поддержка текущего файла при работе по SCP/SFTP;
 - регистрация refactoring-сервисов TypeScript/TSX через совместимый слой штатного JavaScript refactoring engine Komodo IDE.
 
 Внутреннее имя TSX-языка намеренно записано как `ReactTypeScript` без пробела: старый parser chrome/XPCOM manifest Komodo 9 воспринимает пробел внутри contract ID как разделитель.
 
-## Текущая разрабатываемая версия: 0.3.2
+## Текущий релиз: 0.3.2
 
 0.3.2 закрывает два основных ограничения 0.3.1:
 
-- linter для SCP/SFTP переключён на **только синтаксическую диагностику**, чтобы не показывать ложные `Cannot find module` и ошибки неизвестных имён, когда локальный Node не видит удалённые зависимости;
-- completion и calltips переведены на постоянный процесс TypeScript LanguageService и исправленную семантику trigger-позиций Komodo, чтобы не запускать Node и не загружать TypeScript заново на каждый символ.
+- linter для SCP/SFTP переключён на **только синтаксическую диагностику**, поэтому больше не показывает ложные `Cannot find module` и ошибки неизвестных имён, когда локальный Node не видит удалённые зависимости;
+- completion и calltips переведены на постоянный процесс TypeScript LanguageService и исправленную семантику trigger-позиций Komodo.
 
-`build.sh` теперь запускает smoke-тесты до создания XPI. Они проверяют backend completion, signature help, Go to Definition, обратное преобразование SCP URI и syntax-only linting. Перед тегированием 0.3.2 остаётся проверить отображение completion/calltips непосредственно в Komodo 9.3.2.
+`build.sh` запускает smoke-тесты до создания XPI. Живая проверка в Komodo IDE 9.3.2 подтвердила member completion, signature calltips и Go to Definition в TypeScript-файле, открытом по SCP.
+
+### Автоматические completion и calltips
+
+Расширение уважает штатные настройки CodeIntel Komodo и **не включает автоматические popup'ы принудительно**.
+
+Если автоматическое completion отключено, completion и calltips всё равно можно вызвать вручную через `Ctrl+J`.
+
+Для автоматического triggering нужно включить соответствующие настройки Code Intelligence в Komodo. Ключевые preferences:
+
+```text
+codeintel_completion_triggering_enabled
+codeintel_calltip_triggering_enabled
+```
+
+Это важный момент при обновлении: полностью рабочий TypeScript CodeIntel может выглядеть «неактивным», если автоматический triggering был ранее отключён в настройках Komodo.
 
 ## Идентификатор расширения
 
@@ -97,9 +112,9 @@ pylib/codeintel_typescript.py
 TypeScript LanguageService
 ```
 
-Постоянный Node-процесс загружает TypeScript один раз и принимает построчные JSON-запросы completion, signature help и definition. При этом для каждого запроса создаётся новый TypeScript document registry, чтобы несохранённый буфер не кэшировался в устаревшем состоянии.
+Постоянный Node-процесс загружает TypeScript один раз и принимает построчные JSON-запросы completion, signature help и definition. Для каждого запроса создаётся новый TypeScript document registry, чтобы несохранённый буфер не кэшировался в устаревшем состоянии.
 
-Для completion теперь разделены две позиции: `Trigger.pos` указывает Scintilla начало заменяемого префикса, а `query_pos` — реальную позицию курсора для TypeScript LanguageService.
+Для completion разделены две позиции: `Trigger.pos` указывает Scintilla начало заменяемого префикса, а `query_pos` — реальную позицию курсора для TypeScript LanguageService.
 
 Calltips используют штатный `ParenStyleCalltipIntelMixin` Komodo.
 
@@ -114,7 +129,7 @@ Calltips используют штатный `ParenStyleCalltipIntelMixin` Komod
 
 Это намеренно убирает semantic false positives, которые невозможно проверить без удалённых `tsconfig.json`, соседних файлов и `node_modules`.
 
-CodeIntel для SCP/SFTP пока остаётся **single-buffer**. Локальный Node всё ещё не может читать remote imports и type declarations.
+CodeIntel для SCP/SFTP пока остаётся **single-buffer**. Локальный Node всё ещё не может читать remote imports и type declarations, поэтому проектная семантика удалённого проекта ограничена.
 
 ## Refactoring
 
@@ -128,12 +143,6 @@ CodeIntel для SCP/SFTP пока остаётся **single-buffer**. Лока�
 Адаптеры используют JavaScript refactoring engine Komodo для совместимого TypeScript/TSX-синтаксиса. Семантический CodeIntel остаётся на TypeScript LanguageService.
 
 ## Roadmap
-
-### 0.3.2
-
-- syntax-only диагностика SCP/SFTP;
-- надёжное отображение completion и calltips в UI Komodo;
-- сохранение работающего Go to Definition для текущего remote-buffer.
 
 ### 0.4.0
 
