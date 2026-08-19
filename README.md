@@ -17,12 +17,20 @@ The extension backports practical TypeScript support to the old Komodo 9 languag
 - nearest `tsconfig.json` discovery for local projects;
 - diagnostics for the current unsaved editor buffer;
 - TypeScript LanguageService-backed semantic bridge;
-- **Go to Definition** for symbols in the current buffer, including SCP/SFTP buffers;
+- completion, signature-help and Go to Definition requests;
+- current-buffer semantic support for SCP/SFTP documents;
 - Komodo IDE refactoring registration for TypeScript and TSX using Komodo's JavaScript refactoring engine as a compatibility layer.
 
-The LanguageService bridge also implements completion and signature-help requests, but in **0.3.1** these results are not yet reliably surfaced by Komodo's CodeIntel UI. This is a known limitation targeted for 0.3.2.
-
 The internal TSX language name is deliberately `ReactTypeScript` without a space. Komodo 9's old chrome/XPCOM manifest parser treats whitespace inside contract identifiers as a separator.
+
+## Current development version: 0.3.2
+
+0.3.2 focuses on the two gaps left by 0.3.1:
+
+- SCP/SFTP linting now uses **syntax-only diagnostics**, avoiding false `Cannot find module` and unresolved-name errors when remote dependencies are invisible to the local Node process;
+- completion and calltips use a persistent TypeScript LanguageService bridge plus corrected Komodo trigger positions so implicit editor requests no longer pay the cost of starting Node and loading TypeScript for every keystroke.
+
+`build.sh` runs bridge smoke tests before creating the XPI. These tests validate backend member completion, signature help, Go to Definition, SCP URI translation and syntax-only remote linting. Live Komodo UI verification is still required before tagging 0.3.2.
 
 ## Extension identity
 
@@ -36,7 +44,7 @@ Development builds prior to 0.3.0 used a GUID. Komodo treats the new ID as a dif
 
 ## TypeScript compiler resolution
 
-Version 0.3.1 makes release XPI files self-contained for semantic services. `build.sh` bundles a pinned TypeScript compiler/LanguageService into the XPI while still preferring the compiler used by the current local project.
+Release XPI files are self-contained for semantic services. `build.sh` bundles a pinned TypeScript compiler/LanguageService into the XPI while still preferring the compiler used by the current local project.
 
 Runtime resolution order is:
 
@@ -60,22 +68,18 @@ rm -rf ~/.komodoide/9.3/XRE/startupCache
 
 ## Building
 
-`build.sh` creates the XPI directly, keeps chrome resources unjarred, and bundles a fallback TypeScript LanguageService:
-
 ```bash
 ./build.sh
 ```
 
-The script uses, in order:
+The build script:
 
-- `TYPESCRIPT_ROOT` when explicitly supplied;
-- `node_modules/typescript` in this source tree;
-- global npm TypeScript;
-- otherwise npm downloads the pinned TypeScript version into a temporary build directory.
+- resolves or downloads the pinned TypeScript 5.0.4 JavaScript API runtime;
+- runs `test/smoke-codeintel.js` against the CodeIntel and linter bridges;
+- aborts the build if completion/signature/definition or syntax-only linting smoke tests fail;
+- creates `komodo-typescript-9.3.2-<version>.xpi` next to the source tree.
 
-The downloaded/build-time copy is not committed to the repository. The release XPI contains only the required `vendor/typescript` runtime payload.
-
-The script writes the package next to the source directory unless an output path is supplied.
+The TypeScript runtime is selected from `TYPESCRIPT_ROOT`, project `node_modules`, global npm, or a temporary npm download in that order. Build-time downloads are not committed to git.
 
 ## Language layout
 
@@ -84,13 +88,9 @@ The script writes the package next to the source directory unless an output path
 .tsx             -> ReactTypeScript
 ```
 
-`ReactTypeScript` is a separate Komodo language registration, but shares the TypeScript lexer implementation. This keeps `.tsx` association and UI identity independent while avoiding duplicated lexer code.
+`ReactTypeScript` is a separate Komodo language registration, but shares the TypeScript lexer implementation.
 
 ## CodeIntel architecture
-
-Komodo 9's native JavaScript CILE parser predates modern TypeScript and TSX. The extension therefore does not parse TypeScript as old JavaScript.
-
-Instead:
 
 ```text
 Komodo CodeIntel UI
@@ -99,52 +99,49 @@ Komodo CodeIntel UI
 pylib/codeintel_typescript.py
         |
         v
-support/typescript-codeintel.js
+persistent support/typescript-codeintel.js process
         |
         v
 TypeScript LanguageService
 ```
 
-The bridge currently implements completion, signature help and definition requests. In 0.3.1, **Go to Definition is verified to reach the Komodo UI**, while completion and calltips still require an additional Komodo-CodeIntel integration fix.
+The persistent bridge loads the TypeScript runtime once and processes line-oriented JSON requests for completion, signature help and definitions. A fresh TypeScript document registry is created per request so unsaved editor contents cannot become stale between requests.
 
-The CodeIntel bootstrap explicitly loads `langinfo_typescript.py` into Komodo's out-of-process LangInfo database and registers TypeScript aliases in Komodo's `styles.StateMap`. Both are required because Komodo 9 initializes its CodeIntel process before extension language metadata is fully available.
+Komodo trigger integration keeps two cursor positions where needed: `Trigger.pos` identifies the completion prefix that Scintilla should replace, while `query_pos` records the actual TypeScript LanguageService cursor position.
+
+Calltips use Komodo's `ParenStyleCalltipIntelMixin` for argument-region tracking.
 
 ## SCP/SFTP files
 
-Komodo passes remote documents to CodeIntel as URIs such as `scp://host/path/file.ts`. These must not be passed to Node's `path.resolve()`, which would turn them into bogus local paths such as `/home/user/scp:/host/path/file.ts`.
+Komodo passes remote documents to CodeIntel as URIs such as `scp://host/path/file.ts`. The extension represents the current remote editor buffer as a synthetic TypeScript filename internally and translates definitions in that same buffer back to the original Komodo URI.
 
-Version 0.3.1 represents the current SCP/SFTP editor buffer as a synthetic TypeScript filename internally and translates definitions in that same buffer back to the original Komodo remote URI. **Go to Definition inside the current remote file is verified to work without prompting to create a fake local file.**
+In 0.3.2 the linter treats SCP/SFTP documents differently from local files:
 
-A remote TypeScript project is not mirrored to the local machine by this extension. Therefore the local Node LanguageService cannot currently read remote `tsconfig.json`, sibling source files or remote `node_modules`.
+- **remote:** syntax-only diagnostics;
+- **local:** full project-aware TypeScript diagnostics when project files are available.
 
-This has two visible consequences in 0.3.1:
+This deliberately suppresses semantic errors that cannot be verified without access to remote `tsconfig.json`, sibling source files and `node_modules`.
 
-- completion/calltips are not yet surfaced reliably in Komodo;
-- the linter may report false semantic errors such as `Cannot find module 'react'` because remote dependencies are unavailable locally.
-
-## Compiler diagnostics
-
-`components/koTypeScriptLinter.py` uses a companion Node bridge to validate the current editor content. Version 0.3.1 explicitly registers linter contracts for both `TypeScript` and `ReactTypeScript` and uses the same compiler resolution order as CodeIntel.
-
-For local projects the linter can use project configuration and dependencies. For SCP/SFTP files, 0.3.1 still performs semantic diagnostics against a single virtual buffer, so unresolved-module/name errors can be false positives.
+SCP/SFTP CodeIntel remains a **single-buffer** implementation. A local Node LanguageService still cannot read remote imports or type declarations, so project-wide semantic features remain limited.
 
 ## Refactoring
 
-Komodo IDE 9 ships refactoring as the separate system extension `refactoring@activestate.com`. The TypeScript extension registers these IDE contracts:
+Komodo IDE 9 ships refactoring as the separate system extension `refactoring@activestate.com`. The extension registers:
 
 ```text
 @activestate.com/koRefactoringLanguageService;1?language=TypeScript
 @activestate.com/koRefactoringLanguageService;1?language=ReactTypeScript
 ```
 
-The adapters reuse Komodo's JavaScript refactoring engine for JavaScript-compatible TypeScript/TSX syntax. This enables the native Komodo refactoring UI and removes the previous "Can't find a refactoring service" warning. Semantic CodeIntel remains TypeScript-LanguageService-backed; the refactoring compatibility layer is intentionally separate.
+The adapters reuse Komodo's JavaScript refactoring engine for JavaScript-compatible TypeScript/TSX syntax. Semantic CodeIntel remains TypeScript-LanguageService-backed.
 
 ## Roadmap
 
 ### 0.3.2
 
-- switch SCP/SFTP linting to **syntax-only diagnostics**, avoiding false `Cannot find module` / unresolved-name errors when remote dependencies are unavailable;
-- finish Komodo UI integration for LanguageService completion and calltips/signature help.
+- syntax-only SCP/SFTP diagnostics;
+- reliable completion and calltip integration in the Komodo UI;
+- preserve current-buffer SCP/SFTP Go to Definition.
 
 ### 0.4.0
 
@@ -162,7 +159,7 @@ Planned remote-project bridge for SCP/SFTP:
 - `support/` — Node.js bridges for diagnostics and semantic CodeIntel;
 - `skin/` — `TS` / `TSX` icons and language-menu styling;
 - `vendor/` — bundled TypeScript runtime inside built XPI files (generated by `build.sh`, not committed);
-- `test/` — extension tests and fixtures.
+- `test/` — extension tests and build-time smoke checks.
 
 ## Compatibility
 
