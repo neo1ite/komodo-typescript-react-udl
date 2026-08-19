@@ -36,24 +36,26 @@ function oneShot(request) {
 const remoteFile = 'scp://Smoke/project/sample.ts';
 
 const completionText = "const obj = { alpha: 1, beta: 'x' };\nobj.";
-const completion = oneShot({
+const completionRequest = {
     action: 'completion',
     file: remoteFile,
     text: completionText,
     pos: completionText.length
-});
+};
+const completion = oneShot(completionRequest);
 const completionNames = (completion.completions || []).map(function (item) { return item.name; });
 if (completionNames.indexOf('alpha') === -1 || completionNames.indexOf('beta') === -1) {
     fail('member completion did not return alpha/beta: ' + JSON.stringify(completion));
 }
 
 const signatureText = 'function sum(a: number, b: number): number { return a + b; }\nsum(';
-const signature = oneShot({
+const signatureRequest = {
     action: 'signature',
     file: remoteFile,
     text: signatureText,
     pos: signatureText.length
-});
+};
+const signature = oneShot(signatureRequest);
 if (!(signature.calltips || []).some(function (tip) {
     return tip.indexOf('a: number') !== -1 && tip.indexOf('b: number') !== -1;
 })) {
@@ -95,4 +97,77 @@ if (diagnostics.some(function (item) {
     fail('syntax-only linter returned semantic module diagnostics: ' + JSON.stringify(lintPayload));
 }
 
-console.log('smoke-codeintel: OK');
+function validateServerResponses(responses) {
+    if (responses.length !== 2) {
+        fail('persistent bridge returned ' + responses.length + ' responses, expected 2');
+    }
+
+    const names = (responses[0].completions || []).map(function (item) { return item.name; });
+    if (names.indexOf('alpha') === -1 || names.indexOf('beta') === -1) {
+        fail('persistent completion did not return alpha/beta: ' + JSON.stringify(responses[0]));
+    }
+
+    if (!(responses[1].calltips || []).some(function (tip) {
+        return tip.indexOf('a: number') !== -1 && tip.indexOf('b: number') !== -1;
+    })) {
+        fail('persistent signature help failed: ' + JSON.stringify(responses[1]));
+    }
+}
+
+const server = childProcess.spawn(
+    process.execPath,
+    [codeintelBridge, typescriptJs, '--server'],
+    {stdio: ['pipe', 'pipe', 'pipe']}
+);
+
+server.stdout.setEncoding('utf8');
+server.stderr.setEncoding('utf8');
+let stdoutBuffer = '';
+let stderrBuffer = '';
+const serverResponses = [];
+let finished = false;
+
+const timeout = setTimeout(function () {
+    if (finished) return;
+    server.kill();
+    fail('persistent bridge timed out; stderr=' + stderrBuffer);
+}, 5000);
+
+server.stderr.on('data', function (chunk) { stderrBuffer += chunk; });
+server.stdout.on('data', function (chunk) {
+    stdoutBuffer += chunk;
+    while (stdoutBuffer.indexOf('\n') !== -1) {
+        const idx = stdoutBuffer.indexOf('\n');
+        const line = stdoutBuffer.slice(0, idx);
+        stdoutBuffer = stdoutBuffer.slice(idx + 1);
+        if (!line) continue;
+
+        let payload;
+        try { payload = JSON.parse(line); }
+        catch (e) {
+            server.kill();
+            fail('invalid persistent bridge JSON: ' + line);
+        }
+        if (payload.error) {
+            server.kill();
+            fail('persistent bridge error: ' + payload.error);
+        }
+        serverResponses.push(payload);
+
+        if (serverResponses.length === 2) {
+            finished = true;
+            clearTimeout(timeout);
+            validateServerResponses(serverResponses);
+            server.kill();
+            console.log('smoke-codeintel: OK');
+        }
+    }
+});
+
+server.on('error', function (err) {
+    if (!finished) fail(String(err));
+});
+
+server.stdin.write(JSON.stringify(completionRequest) + '\n');
+server.stdin.write(JSON.stringify(signatureRequest) + '\n');
+server.stdin.flush && server.stdin.flush();
