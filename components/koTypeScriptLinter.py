@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """TypeScript compiler diagnostics for Komodo 9.3.x / Python 2.7.
 
-Kept in a separate component module so a linter dependency can never prevent
-the TypeScript language component itself from loading.
-
 Compiler resolution order:
-1. project-local node_modules/typescript;
+1. project-local node_modules/typescript for local files;
 2. compiler bundled into the 0.3.1+ XPI;
 3. a global tsc installation.
+
+Since 0.3.2 SCP/SFTP buffers intentionally use syntax-only diagnostics.
+The local Node process cannot see the remote project's tsconfig.json,
+node_modules or sibling files, so semantic diagnostics for a remote single
+buffer would otherwise report false errors such as "Cannot find module".
 """
 
 import json
@@ -42,18 +44,23 @@ class _KoTypeScriptLinterBase(object):
         if not text:
             return koLintResults()
 
-        filename = self._document_filename(request)
-        cwd = self._safe_cwd(request.cwd or os.path.dirname(filename))
+        filename, is_remote = self._document_context(request)
+        cwd = None if is_remote else self._safe_cwd(
+            request.cwd or os.path.dirname(filename)
+        )
 
         node = self._which("node")
-        typescript_js = self._find_typescript_js(filename)
+        typescript_js = self._find_typescript_js(
+            filename, prefer_project=not is_remote
+        )
         bridge = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "support", "typescript-bridge.js")
         )
 
         if node and typescript_js and os.path.isfile(bridge):
             return self._lint_with_bridge(
-                node, typescript_js, bridge, filename, cwd, text
+                node, typescript_js, bridge, filename, cwd, text,
+                syntax_only=is_remote,
             )
 
         log.warning(
@@ -62,15 +69,41 @@ class _KoTypeScriptLinterBase(object):
         )
         return koLintResults()
 
-    def _document_filename(self, request):
+    def _document_context(self, request):
+        """Return (filename, is_remote) for the current lint request."""
         try:
             ko_file = request.koDoc.file
-            if ko_file and ko_file.isLocal and ko_file.encodedPath:
-                return ko_file.encodedPath
+            if ko_file:
+                if ko_file.isLocal and ko_file.encodedPath:
+                    return ko_file.encodedPath, False
+
+                # Preserve the actual file extension for TSX parsing, but do
+                # not feed an scp:// URI to Node's path.resolve().
+                ext = ".tsx" if self._request_language(request) == "ReactTypeScript" else ".ts"
+                try:
+                    uri = ko_file.URI or ""
+                    base = uri.rsplit("/", 1)[-1].split("?", 1)[0]
+                    lower = base.lower()
+                    if lower.endswith((".ts", ".tsx", ".mts", ".cts")):
+                        ext = os.path.splitext(base)[1]
+                except Exception:
+                    pass
+
+                return os.path.join(
+                    tempfile.gettempdir(), "__komodo_remote__" + ext
+                ), True
         except Exception:
             pass
+
         cwd = request.cwd or tempfile.gettempdir()
-        return os.path.join(cwd, "__komodo_unsaved__.ts")
+        ext = ".tsx" if self._request_language(request) == "ReactTypeScript" else ".ts"
+        return os.path.join(cwd, "__komodo_unsaved__" + ext), False
+
+    def _request_language(self, request):
+        try:
+            return request.koDoc.language
+        except Exception:
+            return ""
 
     def _safe_cwd(self, path):
         if not path:
@@ -111,21 +144,20 @@ class _KoTypeScriptLinterBase(object):
         )
         return candidate if os.path.isfile(candidate) else None
 
-    def _find_typescript_js(self, filename):
-        # Prefer the project's compiler so diagnostics match its build.
-        start = os.path.dirname(os.path.abspath(filename))
-        for directory in self._walk_up(start):
-            candidate = os.path.join(
-                directory, "node_modules", "typescript", "lib", "typescript.js"
-            )
-            if os.path.isfile(candidate):
-                return candidate
+    def _find_typescript_js(self, filename, prefer_project=True):
+        if prefer_project:
+            start = os.path.dirname(os.path.abspath(filename))
+            for directory in self._walk_up(start):
+                candidate = os.path.join(
+                    directory, "node_modules", "typescript", "lib", "typescript.js"
+                )
+                if os.path.isfile(candidate):
+                    return candidate
 
         bundled = self._bundled_typescript_js()
         if bundled:
             return bundled
 
-        # Compatibility fallback for development/unbundled installs.
         tsc = self._which("tsc")
         if not tsc:
             return None
@@ -143,8 +175,12 @@ class _KoTypeScriptLinterBase(object):
                 return candidate
         return None
 
-    def _lint_with_bridge(self, node, typescript_js, bridge, filename, cwd, text):
+    def _lint_with_bridge(self, node, typescript_js, bridge, filename, cwd, text,
+                          syntax_only=False):
         cmd = [node, bridge, typescript_js, filename]
+        if syntax_only:
+            cmd.append("--syntax-only")
+
         env = koprocessutils.getUserEnv()
         try:
             p = process.ProcessOpen(cmd, cwd=cwd, env=env, stdin=process.PIPE)
@@ -165,7 +201,7 @@ class _KoTypeScriptLinterBase(object):
             result.description = diagnostic.get("message", "TypeScript error")
             result.severity = result.SEV_ERROR
             result.lineStart = int(diagnostic.get("line", 1))
-            result.lineEnd = result.lineStart
+            result.lineEnd = int(diagnostic.get("endLine", result.lineStart))
             result.columnStart = int(diagnostic.get("column", 1))
             result.columnEnd = max(
                 result.columnStart + 1,
